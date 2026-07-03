@@ -1,6 +1,6 @@
 {
   "name": "BlankATS",
-  "description": "Mejora tu CV antes de enviarlo. Analiza tu CV en PDF con IA para generar una versión optimizada para ATS.",
+  "description": "Mejora la estructura y presentacion de tu CV antes de enviarlo. Analiza PDF o texto con IA para preparar una version mas clara y profesional.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
