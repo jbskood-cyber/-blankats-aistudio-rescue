@@ -1,6 +1,24 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { NextRequest, NextResponse } from "next/server";
 
+type GeminiContent =
+  | {
+      inlineData: {
+        mimeType: "application/pdf";
+        data: string;
+      };
+    }
+  | { text: string };
+
+type AnalyzeRequest = {
+  pdfBase64?: string;
+  originalText?: string;
+};
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 // Initialize the Gemini client on the server side
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
@@ -13,7 +31,7 @@ const ai = new GoogleGenAI({
 
 export async function POST(req: NextRequest) {
   try {
-    const { pdfBase64, originalText } = await req.json();
+    const { pdfBase64, originalText } = (await req.json()) as AnalyzeRequest;
 
     if (!pdfBase64 && !originalText) {
       return NextResponse.json(
@@ -22,7 +40,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    let contents: any[] = [];
+    const contents: GeminiContent[] = [];
 
     if (pdfBase64) {
       contents.push({
@@ -109,8 +127,8 @@ ${originalText ? `"""\n${originalText}\n"""` : "(Ver archivo PDF adjunto)"}
 
     // Define the models to try in case of transient errors, prioritizing the highly reliable gemini-3.5-flash
     const modelsToTry = ["gemini-3.5-flash", "gemini-flash-latest"];
-    let response;
-    let lastError: any = null;
+    let response: Awaited<ReturnType<typeof ai.models.generateContent>> | undefined;
+    let lastError: unknown = null;
     let attempt = 0;
     const maxAttempts = 3;
 
@@ -289,7 +307,7 @@ ${originalText ? `"""\n${originalText}\n"""` : "(Ver archivo PDF adjunto)"}
         
         // If we successfully get a response, break the loop
         break;
-      } catch (err: any) {
+      } catch (err: unknown) {
         attempt++;
         lastError = err;
         console.error(`Error en intento ${attempt} con el modelo ${currentModel}:`, err);
@@ -316,10 +334,10 @@ ${originalText ? `"""\n${originalText}\n"""` : "(Ver archivo PDF adjunto)"}
 
     const data = JSON.parse(text.trim());
     return NextResponse.json(data);
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Error en la ruta /api/analyze:", error);
     return NextResponse.json(
-      { error: "Error al analizar el CV. Por favor, inténtelo de nuevo más tarde. Detalles: " + error.message },
+      { error: "Error al analizar el CV. Por favor, inténtelo de nuevo más tarde. Detalles: " + getErrorMessage(error) },
       { status: 500 }
     );
   }
