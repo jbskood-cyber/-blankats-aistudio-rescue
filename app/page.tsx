@@ -1,40 +1,34 @@
 "use client";
 
 import Image from "next/image";
-import type { ReactNode } from "react";
-import { useState } from "react";
+import type { ChangeEvent, DragEvent, ReactNode } from "react";
+import { useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
 import {
   AlertTriangle,
   ArrowLeft,
   ArrowRight,
   BarChart3,
-  BriefcaseBusiness,
-  CalendarDays,
   Check,
   CheckCircle2,
   ChevronRight,
   Circle,
-  ClipboardList,
+  Clock3,
+  CloudUpload,
   Download,
-  Eye,
-  FileBadge2,
-  FileCheck2,
+  FileDown,
   FileText,
-  Infinity,
-  Info,
-  LayoutTemplate,
-  ListChecks,
+  Home,
+  Layers3,
   Lock,
-  Mail,
   PenLine,
   Search,
-  Send,
   ShieldCheck,
   Sparkles,
-  Target,
+  Star,
+  Trophy,
   Upload,
-  Zap,
+  UserRound,
 } from "lucide-react";
 
 type QualityStatus = "green" | "yellow" | "red";
@@ -57,17 +51,20 @@ interface ImprovedCV {
     role: string;
     period: string;
     bullets: string[];
+    description?: string;
   }[];
   education: {
     institution: string;
     degree: string;
     period: string;
+    description?: string;
   }[];
   skills: string[];
   projects?: {
     name: string;
     bullets: string[];
     period?: string;
+    description?: string;
   }[];
   certifications?: string[];
 }
@@ -90,41 +87,43 @@ interface AnalysisResponse {
   };
 }
 
-type Screen = "home" | "upload" | "analyzing" | "diagnosis" | "unlock" | "success";
+type Screen = "home" | "upload" | "analyzing" | "diagnosis" | "paywall" | "success";
+type InputMode = "pdf" | "text";
+type RawRecord = Record<string, unknown>;
 
 const demoAnalysis: AnalysisResponse = {
   score: 78,
   qualityStatus: "yellow",
   processingMode: "RESTRUCTURE_AND_IMPROVE",
   recommendedAction: "review_before_download",
-  extractionWarnings: ["El archivo se pudo leer, pero algunas secciones necesitan revisión."],
-  dataIntegrityWarnings: ["No se agregaron datos no detectados en el CV original."],
+  extractionWarnings: ["Algunas secciones requieren revisión visual antes de descarga."],
+  dataIntegrityWarnings: ["No se agregaron datos que no estuvieran presentes en el CV original."],
   problems: [
     "Faltan palabras clave relevantes",
-    "Formato menos compatible con ATS",
-    "Sección de resumen ausente",
+    "Formato poco consistente",
+    "Resumen profesional ausente",
     "Poca cuantificación de logros",
   ],
   missingSections: ["Resumen"],
   recommendations: [
     "Mejora el resumen",
-    "Cuantifica tus logros",
+    "Refuerza logros",
     "Optimiza palabras clave",
   ],
   improvedCV: {
-    name: "María López",
+    name: "Natalia Ruiz Castellanos",
     title: "Diseñadora UX/UI",
-    contact: "CDMX, México · maria@email.com · 55 1234 5678",
+    contact: "CDMX, México · natalia@email.com · 55 1234 5678",
     summary:
-      "Diseñadora UX/UI enfocada en crear experiencias digitales intuitivas y centradas en el usuario.",
+      "Diseñadora UX/UI enfocada en crear experiencias digitales claras, intuitivas y centradas en resultados.",
     experience: [
       {
         company: "Empresa Digital",
         role: "Diseñadora UX/UI Senior",
         period: "2021 - Actualidad",
         bullets: [
-          "Diseñé interfaces centradas en el usuario que mejoraron la conversión en 25%.",
-          "Colaboré con equipos de producto y desarrollo para entregar soluciones de alto impacto.",
+          "Diseñó interfaces centradas en el usuario que mejoraron la conversión en 25%.",
+          "Colaboró con equipos de producto y desarrollo para entregar soluciones claras y medibles.",
         ],
       },
     ],
@@ -135,12 +134,12 @@ const demoAnalysis: AnalysisResponse = {
         period: "2016 - 2020",
       },
     ],
-    skills: ["Research", "Diseño UI", "Prototipos", "Figma", "Sistemas visuales"],
+    skills: ["Research", "Diseño UI", "Figma", "Prototipado", "Sistemas visuales"],
     projects: [
       {
         name: "Rediseño de onboarding",
         period: "2024",
-        bullets: ["Simplificó la lectura del perfil y el flujo de postulación."],
+        bullets: ["Simplificó la lectura del perfil y mejoró el flujo de postulación."],
       },
     ],
   },
@@ -154,759 +153,867 @@ const demoAnalysis: AnalysisResponse = {
 
 const blue = "#0068ff";
 
-export default function Home() {
+function asRecord(value: unknown): RawRecord {
+  return value && typeof value === "object" ? (value as RawRecord) : {};
+}
+
+function sanitizeImprovedCV(cv: unknown): ImprovedCV {
+  const rawCV = asRecord(cv);
+
+  const cleanText = (value: unknown): string => {
+    let text = String(value ?? "").trim();
+    text = text.replace(/\[[^\]]*\]/g, "");
+    text = text.replace(/pendiente/gi, "");
+    text = text.replace(/agregar aquí/gi, "");
+    text = text.replace(/agregar aqui/gi, "");
+    text = text.replace(/\bn\/a\b/gi, "");
+    text = text.replace(/placeholder/gi, "");
+    return text.replace(/\s+/g, " ").trim();
+  };
+
+  const sanitizeBullets = (bullets: unknown, descriptionFallback?: string): string[] => {
+    let rawList: string[] = [];
+
+    if (Array.isArray(bullets) && bullets.length > 0) {
+      rawList = bullets.map((bullet) => String(bullet));
+    } else if (descriptionFallback) {
+      rawList = descriptionFallback.replace(/\.-/g, "\n").replace(/\s[-*]\s/g, "\n").split("\n");
+    }
+
+    return rawList
+      .map((line) => cleanText(line).replace(/^[-*]\s?/, "").trim())
+      .filter(Boolean);
+  };
+
+  const experience = Array.isArray(rawCV.experience)
+    ? rawCV.experience.map((entry) => {
+        const item = asRecord(entry);
+        return {
+          company: cleanText(item.company),
+          role: cleanText(item.role),
+          period: cleanText(item.period),
+          bullets: sanitizeBullets(item.bullets, typeof item.description === "string" ? item.description : undefined),
+        };
+      })
+    : [];
+
+  const education = Array.isArray(rawCV.education)
+    ? rawCV.education.map((entry) => {
+        const item = asRecord(entry);
+        return {
+          institution: cleanText(item.institution),
+          degree: cleanText(item.degree),
+          period: cleanText(item.period),
+          description: item.description ? cleanText(item.description) : undefined,
+        };
+      })
+    : [];
+
+  const projects = Array.isArray(rawCV.projects)
+    ? rawCV.projects.map((entry) => {
+        const item = asRecord(entry);
+        return {
+          name: cleanText(item.name),
+          bullets: sanitizeBullets(item.bullets, typeof item.description === "string" ? item.description : undefined),
+          period: item.period ? cleanText(item.period) : undefined,
+        };
+      })
+    : [];
+
+  return {
+    name: cleanText(rawCV.name),
+    title: cleanText(rawCV.title),
+    contact: cleanText(rawCV.contact),
+    summary: cleanText(rawCV.summary),
+    experience,
+    education,
+    skills: Array.isArray(rawCV.skills) ? rawCV.skills.map(cleanText).filter(Boolean) : [],
+    projects: projects.length ? projects : undefined,
+    certifications: Array.isArray(rawCV.certifications) ? rawCV.certifications.map(cleanText).filter(Boolean) : undefined,
+  };
+}
+
+export default function HomePage() {
   const [screen, setScreen] = useState<Screen>("home");
+  const [inputMode, setInputMode] = useState<InputMode>("pdf");
+  const [file, setFile] = useState<File | null>(null);
+  const [pastedText, setPastedText] = useState("");
+  const [dragActive, setDragActive] = useState(false);
+  const [analysis, setAnalysis] = useState<AnalysisResponse | null>(null);
+  const [visualNote, setVisualNote] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const currentAnalysis = analysis ?? demoAnalysis;
+  const currentFileName = file?.name || "mi-cv.pdf";
+  const canAnalyze = useMemo(() => Boolean(file || pastedText.trim()), [file, pastedText]);
+
+  const acceptFile = (selectedFile: File) => {
+    if (selectedFile.type !== "application/pdf") {
+      setVisualNote("Para esta versión usa PDF o pega texto en la pestaña correspondiente.");
+      return;
+    }
+    setFile(selectedFile);
+    setInputMode("pdf");
+    setVisualNote(null);
+  };
+
+  const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = event.target.files?.[0];
+    if (selectedFile) acceptFile(selectedFile);
+  };
+
+  const handleDrag = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setDragActive(event.type === "dragenter" || event.type === "dragover");
+  };
+
+  const handleDrop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setDragActive(false);
+    const droppedFile = event.dataTransfer.files?.[0];
+    if (droppedFile) acceptFile(droppedFile);
+  };
+
+  const fileToBase64 = (selectedFile: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = String(reader.result ?? "");
+        const base64 = result.split(",")[1];
+        if (base64) {
+          resolve(base64);
+        } else {
+          reject(new Error("No se pudo leer el archivo."));
+        }
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(selectedFile);
+    });
+
+  const runAnalysis = async () => {
+    setScreen("analyzing");
+    setVisualNote(null);
+
+    try {
+      if (!canAnalyze) {
+        await wait(1500);
+        setAnalysis(demoAnalysis);
+        setScreen("diagnosis");
+        return;
+      }
+
+      const pdfBase64 = file ? await fileToBase64(file) : undefined;
+      const response = await fetch("/api/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          pdfBase64,
+          originalText: pastedText.trim() || undefined,
+        }),
+      });
+
+      if (!response.ok) throw new Error("El análisis real no respondió en local.");
+
+      const data = (await response.json()) as AnalysisResponse;
+      data.improvedCV = sanitizeImprovedCV(data.improvedCV);
+      setAnalysis(data);
+    } catch {
+      setAnalysis(demoAnalysis);
+      setVisualNote("Vista demo: el diseño se puede revisar aunque el análisis real no esté disponible en local.");
+    } finally {
+      await wait(900);
+      setScreen("diagnosis");
+    }
+  };
+
+  const downloadPDF = async () => {
+    if (!currentAnalysis.deliveryDecision.allowDownload) {
+      setVisualNote(currentAnalysis.deliveryDecision.userMessage);
+      setScreen("diagnosis");
+      return;
+    }
+
+    const { jsPDF } = await import("jspdf");
+    const doc = new jsPDF("p", "pt", "a4");
+    const cv = currentAnalysis.improvedCV;
+    const margin = 50;
+    let y = 56;
+
+    const write = (text: string, size = 10, bold = false) => {
+      doc.setFont("helvetica", bold ? "bold" : "normal");
+      doc.setFontSize(size);
+      const lines = doc.splitTextToSize(text, 495);
+      lines.forEach((line: string) => {
+        if (y > 780) {
+          doc.addPage();
+          y = margin;
+        }
+        doc.text(line, margin, y);
+        y += size + 6;
+      });
+    };
+
+    write(cv.name || "CV BlankATS", 22, true);
+    if (cv.title) write(cv.title, 12, true);
+    if (cv.contact) write(cv.contact, 9);
+    y += 12;
+    if (cv.summary) {
+      write("Resumen profesional", 11, true);
+      write(cv.summary, 9);
+    }
+    cv.experience.forEach((item) => {
+      y += 10;
+      write(`${item.role} · ${item.company}`, 11, true);
+      if (item.period) write(item.period, 9);
+      item.bullets.forEach((bullet) => write(`- ${bullet}`, 9));
+    });
+    if (cv.education.length) {
+      y += 10;
+      write("Educación", 11, true);
+      cv.education.forEach((item) => write(`${item.degree} · ${item.institution} · ${item.period}`, 9));
+    }
+    if (cv.skills.length) {
+      y += 10;
+      write("Habilidades", 11, true);
+      write(cv.skills.join(", "), 9);
+    }
+
+    doc.save(`CV_BlankATS_${(cv.name || "usuario").replace(/\s+/g, "_")}.pdf`);
+  };
+
+  const downloadDoc = () => {
+    const cv = currentAnalysis.improvedCV;
+    const content = [
+      cv.name,
+      cv.title,
+      cv.contact,
+      "",
+      "Resumen profesional",
+      cv.summary,
+      "",
+      "Experiencia",
+      ...cv.experience.flatMap((item) => [
+        `${item.role} · ${item.company} · ${item.period}`,
+        ...item.bullets.map((bullet) => `- ${bullet}`),
+      ]),
+      "",
+      "Educación",
+      ...cv.education.map((item) => `${item.degree} · ${item.institution} · ${item.period}`),
+      "",
+      "Habilidades",
+      cv.skills.join(", "),
+    ].join("\n");
+
+    const blob = new Blob([content], { type: "application/msword" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `CV_BlankATS_${(cv.name || "usuario").replace(/\s+/g, "_")}.doc`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const goHome = () => {
+    setScreen("home");
+    setAnalysis(null);
+    setVisualNote(null);
+  };
 
   return (
     <main className="min-h-screen bg-white text-[#070b2f]">
-      <div className="mx-auto min-h-screen w-full max-w-[480px] overflow-hidden bg-white shadow-[0_0_0_1px_rgba(5,15,45,0.04)]">
-        {screen === "home" ? <HomeScreen onGo={setScreen} /> : null}
-        {screen === "upload" ? <UploadScreen onGo={setScreen} /> : null}
-        {screen === "analyzing" ? <AnalyzingScreen onGo={setScreen} /> : null}
-        {screen === "diagnosis" ? <DiagnosisScreen onGo={setScreen} /> : null}
-        {screen === "unlock" ? <UnlockScreen onGo={setScreen} /> : null}
-        {screen === "success" ? <SuccessScreen onGo={setScreen} /> : null}
+      <div className="mx-auto min-h-screen w-full max-w-[512px] bg-white">
+        {screen === "home" ? <LandingScreen onGo={setScreen} /> : null}
+        {screen === "upload" ? (
+          <UploadScreen
+            canAnalyze={canAnalyze}
+            dragActive={dragActive}
+            file={file}
+            fileInputRef={fileInputRef}
+            inputMode={inputMode}
+            note={visualNote}
+            pastedText={pastedText}
+            onAnalyze={runAnalysis}
+            onBack={() => setScreen("home")}
+            onDrag={handleDrag}
+            onDrop={handleDrop}
+            onFileChange={handleFileChange}
+            onMode={setInputMode}
+            onText={setPastedText}
+          />
+        ) : null}
+        {screen === "analyzing" ? <AnalyzingScreen fileName={currentFileName} /> : null}
+        {screen === "diagnosis" ? (
+          <DiagnosisScreen
+            analysis={currentAnalysis}
+            note={visualNote}
+            onBack={() => setScreen("upload")}
+            onUnlock={() => setScreen("paywall")}
+          />
+        ) : null}
+        {screen === "paywall" ? (
+          <PaywallScreen onBack={() => setScreen("diagnosis")} onUnlock={() => setScreen("success")} />
+        ) : null}
+        {screen === "success" ? (
+          <SuccessScreen
+            analysis={currentAnalysis}
+            fileName={currentFileName}
+            onDoc={downloadDoc}
+            onHome={goHome}
+            onPdf={downloadPDF}
+          />
+        ) : null}
       </div>
     </main>
   );
 }
 
-function HomeScreen({ onGo }: { onGo: (screen: Screen) => void }) {
-  return (
-    <ScreenShell
-      header={<TopHeader action="Iniciar sesión" />}
-      className="pb-5"
-    >
-      <section className="px-10 pt-8 text-center">
-        <Pill icon={<Sparkles className="h-4 w-4" />}>Análisis ATS inteligente</Pill>
-        <h1 className="mt-4 text-[41px] font-black leading-[0.98] tracking-[-0.02em] text-[#070b2f]">
-          Mejora tu CV <span className="block text-[#0068ff]">antes de enviarlo</span>
-        </h1>
-        <p className="mx-auto mt-4 max-w-[320px] text-[16px] font-medium leading-7 text-[#626a79]">
-          Recibe un diagnóstico gratuito y desbloquea una versión profesional lista para aplicar.
-        </p>
-        <div className="mt-7 space-y-3">
-          <PrimaryButton onClick={() => onGo("upload")}>Analizar mi CV gratis</PrimaryButton>
-          <OutlineButton onClick={() => onGo("upload")}>Ver cómo funciona</OutlineButton>
-        </div>
-      </section>
-
-      <section className="px-8 pt-6">
-        <DiagnosticSummaryCard />
-      </section>
-
-      <section className="px-8 pt-5 text-center">
-        <h2 className="text-[25px] font-black text-[#070b2f]">Cómo funciona</h2>
-        <div className="mt-5 grid grid-cols-3 items-start gap-3">
-          <StepItem icon={<Upload className="h-7 w-7" />} number="1" title="Sube tu CV">
-            PDF o DOCX. Rápido, seguro y confidencial.
-          </StepItem>
-          <StepItem icon={<Search className="h-8 w-8" />} number="2" title="Recibe diagnóstico">
-            Análisis ATS inteligente con puntuación y tips.
-          </StepItem>
-          <StepItem icon={<Sparkles className="h-7 w-7" />} number="3" title="Desbloquea versión mejorada">
-            Obtén tu CV optimizado y listo para aplicar.
-          </StepItem>
-        </div>
-      </section>
-
-      <section className="px-8 pt-6">
-        <LaunchOffer compact onClick={() => onGo("unlock")} />
-      </section>
-
-      <ProtectedFooter className="mt-4" />
-    </ScreenShell>
-  );
+function wait(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
-function UploadScreen({ onGo }: { onGo: (screen: Screen) => void }) {
+function LandingScreen({ onGo }: { onGo: (screen: Screen) => void }) {
   return (
-    <ScreenShell
-      header={<TopHeader left="back" onBack={() => onGo("home")} />}
-      className="pb-6"
-    >
-      <section className="px-8 pt-8 text-center">
-        <h1 className="text-[45px] font-black leading-none tracking-[-0.03em]">
-          Sube tu <span className="text-[#0068ff]">CV</span>
+    <ScreenShell>
+      <SimpleHeader />
+
+      <section className="px-11 pt-14 text-center">
+        <h1 className="text-[46px] font-black leading-[0.98] tracking-[-0.035em]">
+          Mejora tu CV
+          <span className="block text-[#0068ff]">antes de enviarlo</span>
         </h1>
-        <p className="mx-auto mt-4 max-w-[320px] text-[20px] font-medium leading-8 text-[#5f6673]">
-          Carga tu archivo PDF para recibir un diagnóstico gratuito.
+        <p className="mx-auto mt-5 max-w-[390px] text-[17px] font-medium leading-7 text-[#626a79]">
+          Recibe un diagnóstico gratuito y desbloquea una versión profesional más clara, ordenada y lista para descargar.
         </p>
-      </section>
-
-      <section className="px-8 pt-7">
-        <button
-          onClick={() => onGo("analyzing")}
-          className="w-full rounded-lg border-2 border-dashed border-[#b8cce4] bg-[#fbfdff] px-6 py-11 text-center"
-        >
-          <div className="mx-auto grid h-24 w-24 place-items-center">
-            <PdfDocumentIcon large />
-          </div>
-          <p className="mt-5 text-[20px] font-black text-[#070b2f]">
-            Arrastra y suelta tu CV aquí
-          </p>
-          <p className="mt-2 text-[17px] font-medium text-[#6f7682]">
-            o haz clic para seleccionar tu archivo
-          </p>
-        </button>
-
-        <button
-          onClick={() => onGo("analyzing")}
-          className="mt-5 flex h-14 w-full items-center justify-center gap-4 rounded-lg border border-[#0c66d8] bg-white text-[20px] font-black text-[#0c66d8]"
-        >
-          <Upload className="h-6 w-6" />
-          Seleccionar PDF
-        </button>
-        <p className="mt-3 text-center text-[16px] font-medium text-[#6a7280]">
-          Solo PDF · Máx. 10 MB
-        </p>
-
-        <div className="mt-5 flex items-start gap-4 rounded-lg border border-[#dce5f0] bg-[#fbfdff] p-4">
-          <ShieldCheck className="mt-1 h-8 w-8 shrink-0 text-[#0068ff]" />
-          <p className="text-[15px] font-medium leading-7 text-[#5f6673]">
-            <span className="font-black text-[#070b2f]">Tus datos están protegidos.</span>{" "}
-            No compartimos tu información con terceros ni hacemos públicas tus evaluaciones.
-          </p>
-        </div>
-
-        <label className="mt-6 block text-left text-[18px] font-black text-[#070b2f]">
-          Tu correo
-        </label>
-        <div className="mt-3 flex h-16 items-center gap-4 rounded-lg border border-[#d6dce5] px-5">
-          <Mail className="h-6 w-6 text-[#8a929f]" />
-          <span className="text-[18px] font-medium text-[#8a929f]">nombre@correo.com</span>
-        </div>
-        <p className="mt-3 text-[15px] font-medium leading-6 text-[#6a7280]">
-          Te enviaremos tu diagnóstico y tu CV mejorado a este correo.
-        </p>
-
-        <div className="mt-7">
-          <PrimaryButton onClick={() => onGo("analyzing")}>Analizar mi CV gratis</PrimaryButton>
-        </div>
-        <div className="mt-5 flex items-center justify-center gap-2 text-[#6a7280]">
-          <ShieldCheck className="h-6 w-6 text-[#0068ff]" />
-          <span className="text-[15px] font-medium">Pago seguro</span>
-        </div>
-      </section>
-    </ScreenShell>
-  );
-}
-
-function AnalyzingScreen({ onGo }: { onGo: (screen: Screen) => void }) {
-  return (
-    <ScreenShell
-      header={<TopHeader action="Iniciar sesión" />}
-      className="pb-4"
-    >
-      <section className="px-8 pt-8 text-center">
-        <Pill icon={<Sparkles className="h-4 w-4" />}>Análisis ATS inteligente</Pill>
-        <h1 className="mt-5 text-[40px] font-black leading-none tracking-[-0.025em]">
-          Analizando tu <span className="text-[#0068ff]">CV</span>
-        </h1>
-        <p className="mx-auto mt-4 max-w-[330px] text-[16px] font-medium leading-7 text-[#626a79]">
-          Estamos revisando estructura, claridad y formato.
-        </p>
-      </section>
-
-      <section className="px-8 pt-7">
-        <ProgressRing percent={72} label="Analizando..." size="large" />
-      </section>
-
-      <section className="px-8 pt-5">
-        <div className="flex items-center gap-4 rounded-lg border border-[#e0e5ec] bg-white p-4 shadow-[0_8px_24px_rgba(15,25,55,0.06)]">
-          <PdfDocumentIcon />
-          <div className="flex-1">
-            <p className="text-[19px] font-black text-[#070b2f]">mi-cv.pdf</p>
-            <p className="text-[15px] font-medium text-[#6f7682]">Archivo cargado</p>
-          </div>
-          <CheckCircle2 className="h-8 w-8 text-[#12b861]" />
-        </div>
-
-        <div className="mt-5 overflow-hidden rounded-lg border border-[#e0e5ec] bg-white shadow-[0_8px_24px_rgba(15,25,55,0.05)]">
-          <AnalyzeRow index="1" text="Extrayendo contenido" done />
-          <AnalyzeRow index="2" text="Detectando secciones" done />
-          <AnalyzeRow index="3" text="Evaluando claridad" active />
-          <AnalyzeRow index="4" text="Optimizando recomendaciones" />
-        </div>
-
-        <button
-          onClick={() => onGo("diagnosis")}
-          className="mx-auto mt-5 flex items-center justify-center gap-3 text-[15px] font-medium text-[#667080]"
-        >
-          <span className="grid h-7 w-7 place-items-center rounded-full border border-[#0068ff] text-[#0068ff]">
-            <span className="h-3 w-3 rounded-full border-2 border-current border-t-transparent" />
-          </span>
-          Esto tarda menos de 1 minuto
+        <button className="mt-7 flex h-[58px] w-full items-center justify-center gap-3 rounded-[11px] bg-[#0068ff] text-[20px] font-black text-white shadow-[0_12px_24px_rgba(0,104,255,0.24)]" onClick={() => onGo("upload")}>
+          <Sparkles className="h-5 w-5" />
+          Analizar mi CV gratis
         </button>
       </section>
 
-      <section className="px-5 pt-7">
-        <div className="rounded-lg border border-[#e0e5ec] bg-white p-4">
-          <h2 className="text-center text-[22px] font-black">¿Qué estamos evaluando?</h2>
-          <div className="mt-5 grid grid-cols-3 gap-3">
-            <EvalCard icon={<FileText className="h-7 w-7" />} title="Formato">
-              Verificamos estructura, orden y compatibilidad ATS.
-            </EvalCard>
-            <EvalCard icon={<ListChecks className="h-7 w-7" />} title="Contenido">
-              Analizamos claridad, relevancia y uso de palabras clave.
-            </EvalCard>
-            <EvalCard icon={<Target className="h-7 w-7" />} title="Impacto">
-              Evaluamos el potencial de tu CV para captar la atención.
-            </EvalCard>
-          </div>
-        </div>
-      </section>
-    </ScreenShell>
-  );
-}
-
-function DiagnosisScreen({ onGo }: { onGo: (screen: Screen) => void }) {
-  return (
-    <ScreenShell
-      header={<TopHeader left="chevron" right="share" onBack={() => onGo("upload")} />}
-      className="pb-4"
-    >
-      <section className="px-8 pt-5 text-center">
-        <Pill icon={<Sparkles className="h-4 w-4" />}>Diagnóstico ATS gratuito</Pill>
-        <h1 className="mt-4 text-[38px] font-black leading-none tracking-[-0.02em]">
-          Tu diagnóstico
-        </h1>
-        <p className="mt-3 text-[17px] font-medium text-[#626a79]">
-          Detectamos oportunidades de mejora en tu CV.
-        </p>
+      <section className="px-11 pt-8">
+        <HomeScoreCard />
       </section>
 
-      <section className="px-7 pt-5">
-        <div className="rounded-lg border border-[#e0e5ec] bg-white p-5 shadow-[0_8px_26px_rgba(15,25,55,0.05)]">
-          <div className="grid grid-cols-[140px_1fr] items-center gap-5">
-            <ProgressRing percent={78} score />
-            <div className="text-left">
-              <h2 className="text-[24px] font-black leading-tight text-[#0068ff]">
-                Buen potencial,
-              </h2>
-              <p className="mt-1 text-[18px] font-medium leading-7 text-[#070b2f]">
-                pero hay problemas que pueden afectar tu presentación.
-              </p>
-            </div>
-          </div>
-
-          <NumberedPanel title="Problemas detectados" number="1">
-            <ProblemRow icon="alert" label="Faltan palabras clave relevantes" severity="Alto" tone="red" />
-            <ProblemRow icon="warning" label="Formato menos compatible con ATS" severity="Medio" tone="amber" />
-            <ProblemRow icon="info" label="Sección de resumen ausente" severity="Alto" tone="red" />
-            <ProblemRow icon="info" label="Poca cuantificación de logros" severity="Bajo" tone="blue" />
-          </NumberedPanel>
-
-          <NumberedPanel title="Secciones detectadas" number="2">
-            <div className="flex flex-wrap gap-2">
-              <StatusChip ok>Experiencia</StatusChip>
-              <StatusChip ok>Educación</StatusChip>
-              <StatusChip ok>Habilidades</StatusChip>
-              <StatusChip warning>Falta: Resumen</StatusChip>
-            </div>
-          </NumberedPanel>
-
-          <NumberedPanel title="Recomendaciones clave" number="3">
-            <div className="grid grid-cols-3 gap-3">
-              <RecommendationCard icon={<ClipboardList className="h-6 w-6" />} title="Mejora el resumen">
-                Añade un resumen profesional claro y orientado a resultados.
-              </RecommendationCard>
-              <RecommendationCard icon={<BarChart3 className="h-6 w-6" />} title="Cuantifica tus logros">
-                Incluye métricas para demostrar tu impacto.
-              </RecommendationCard>
-              <RecommendationCard icon={<Search className="h-6 w-6" />} title="Optimiza palabras clave">
-                Usa keywords relevantes de la oferta laboral.
-              </RecommendationCard>
-            </div>
-          </NumberedPanel>
-
-          <div className="mt-4">
-            <div className="mb-3 flex items-center gap-3">
-              <h2 className="text-[18px] font-black">Versión mejorada</h2>
-              <span className="inline-flex items-center gap-1 rounded-full border border-[#b8cce4] px-3 py-1 text-xs font-bold text-[#0c66d8]">
-                <Lock className="h-3 w-3" /> Vista previa
-              </span>
-            </div>
-            <LockedPreview />
-          </div>
-
-          <div className="mt-5">
-            <PrimaryButton icon={<Lock className="h-6 w-6" />} onClick={() => onGo("unlock")}>
-              Desbloquear mi CV mejorado
-            </PrimaryButton>
-          </div>
-
-          <div className="mt-5 grid grid-cols-3 divide-x divide-[#e6ebf2] text-center text-[14px] font-medium text-[#6a7280]">
-            <TrustItem icon={<ShieldCheck className="h-7 w-7" />}>Pago único</TrustItem>
-            <TrustItem icon={<Infinity className="h-7 w-7" />}>Acceso ilimitado</TrustItem>
-            <TrustItem icon={<Lock className="h-7 w-7" />}>Pago seguro</TrustItem>
-          </div>
-        </div>
-      </section>
-    </ScreenShell>
-  );
-}
-
-function UnlockScreen({ onGo }: { onGo: (screen: Screen) => void }) {
-  return (
-    <ScreenShell
-      header={<TopHeader action="Iniciar sesión" />}
-      className="pb-5"
-    >
-      <section className="px-8 pt-7 text-center">
-        <h1 className="text-[43px] font-black leading-[1.02] tracking-[-0.03em]">
-          Desbloquea tu <br />
-          CV <span className="text-[#0068ff]">mejorado</span>
-        </h1>
-        <p className="mx-auto mt-4 max-w-[320px] text-[18px] font-medium leading-7 text-[#626a79]">
-          Obtén una versión más clara, profesional y lista para enviar.
-        </p>
-      </section>
-
-      <section className="px-7 pt-6">
-        <BeforeAfterPreview />
-      </section>
-
-      <section className="px-7 pt-5">
-        <div className="grid grid-cols-5 gap-2 rounded-lg border border-[#e0e5ec] bg-white px-3 py-4 shadow-[0_8px_26px_rgba(15,25,55,0.06)]">
-          <BenefitIcon icon={<ClipboardList className="h-7 w-7" />}>Estructura más clara</BenefitIcon>
-          <BenefitIcon icon={<PenLine className="h-7 w-7" />}>Redacción profesional</BenefitIcon>
-          <BenefitIcon icon={<Eye className="h-7 w-7" />}>Mejor legibilidad</BenefitIcon>
-          <BenefitIcon icon={<FileCheck2 className="h-7 w-7" />}>PDF listo para descargar</BenefitIcon>
-          <BenefitIcon icon={<Send className="h-7 w-7" />}>Envío por correo</BenefitIcon>
-        </div>
-      </section>
-
-      <section className="px-7 pt-5">
-        <div className="rounded-lg border border-[#cbdbea] bg-[#fbfdff] p-4 shadow-[0_8px_26px_rgba(15,25,55,0.05)]">
-          <div className="grid grid-cols-[92px_1fr_auto] items-center gap-3">
-            <div className="grid h-20 w-20 place-items-center rounded-full border border-[#7fb4f7] bg-white text-center text-[13px] font-black leading-4 text-[#0c66d8]">
-              Oferta de lanzamiento
-            </div>
-            <div>
-              <div className="flex items-end gap-2">
-                <span className="text-[47px] font-black leading-none text-[#070b2f]">$49</span>
-                <span className="pb-2 text-[18px] font-black text-[#0068ff]">MXN</span>
-              </div>
-              <p className="mt-1 text-[14px] font-medium text-[#6a7280]">
-                Pago único · Sin cargos ocultos
-              </p>
-            </div>
-            <span className="text-[19px] font-bold text-[#666] line-through">$99 MXN</span>
-          </div>
-
-          <div className="mt-5 space-y-3">
-            <InputLike icon={<Mail className="h-6 w-6" />}>Correo electrónico</InputLike>
-            <InputLike icon={<span className="text-[24px] text-[#0bbb54]">◔</span>} subtext="Te enviaremos tu CV a este número">
-              WhatsApp (opcional)
-            </InputLike>
-          </div>
-
-          <div className="mt-5 grid grid-cols-3 divide-x divide-[#dfe6ef]">
-            <MiniGuarantee icon={<ShieldCheck className="h-9 w-9" />} title="Pago seguro">
-              Tus datos están protegidos
-            </MiniGuarantee>
-            <MiniGuarantee icon={<Circle className="h-9 w-9" />} title="Sin suscripción">
-              Pago único, sin renovaciones
-            </MiniGuarantee>
-            <MiniGuarantee icon={<Zap className="h-9 w-9" />} title="Entrega inmediata">
-              Recibe tu CV al instante
-            </MiniGuarantee>
-          </div>
-        </div>
-
-        <div className="mt-5">
-          <PrimaryButton onClick={() => onGo("success")}>Pagar y generar mi CV</PrimaryButton>
-        </div>
-        <ProtectedFooter className="mt-4" />
-      </section>
-    </ScreenShell>
-  );
-}
-
-function SuccessScreen({ onGo }: { onGo: (screen: Screen) => void }) {
-  return (
-    <ScreenShell
-      header={<TopHeader action="Ir al inicio" onAction={() => onGo("home")} />}
-      className="pb-5"
-    >
-      <section className="px-8 pt-8 text-center">
-        <div className="mx-auto relative grid h-24 w-24 place-items-center rounded-full bg-[#dff8ec]">
-          <Check className="h-12 w-12 text-[#10b85f]" strokeWidth={5} />
-          <span className="absolute -left-5 top-8 h-2 w-2 rounded-full bg-[#11bd65]" />
-          <span className="absolute -right-5 top-9 h-2 w-2 rounded-full bg-[#0068ff]" />
-          <span className="absolute right-2 -top-1 h-1.5 w-1.5 rounded-full bg-[#54d9b7]" />
-        </div>
-        <h1 className="mt-6 text-[38px] font-black leading-none tracking-[-0.02em]">
-          ¡Tu CV está listo!
-        </h1>
-        <p className="mt-4 text-[17px] font-medium text-[#626a79]">
-          Hemos generado tu versión mejorada.
-        </p>
-      </section>
-
-      <section className="px-8 pt-6">
-        <div className="rounded-lg border border-[#e0e5ec] bg-white p-5 shadow-[0_8px_26px_rgba(15,25,55,0.06)]">
-          <div className="flex items-center gap-5">
-            <PdfDocumentIcon />
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-[20px] font-black">CV_Josue_Bravo_BlankATS.pdf</p>
-              <span className="mt-2 inline-flex items-center gap-2 rounded-full bg-[#dff8ec] px-3 py-1 text-[13px] font-black text-[#139b55]">
-                <CheckCircle2 className="h-4 w-4" /> Generado
-              </span>
-            </div>
-          </div>
-          <div className="mt-5 flex gap-8 border-t border-[#e5eaf1] pt-4 text-[15px] font-medium text-[#6a7280]">
-            <span className="inline-flex items-center gap-2">
-              <CalendarDays className="h-5 w-5 text-[#0c66d8]" /> Creado hoy
-            </span>
-            <span className="inline-flex items-center gap-2">
-              <FileText className="h-5 w-5" /> 2 páginas
-            </span>
-          </div>
-        </div>
-
-        <div className="mt-5 space-y-3">
-          <PrimaryButton icon={<Download className="h-6 w-6" />} onClick={() => undefined}>
-            Descargar PDF
-          </PrimaryButton>
-          <OutlineButton icon={<Mail className="h-6 w-6" />} onClick={() => undefined}>
-            Enviar de nuevo por correo
-          </OutlineButton>
-        </div>
-        <p className="mt-4 text-center text-[15px] font-medium text-[#6a7280]">
-          También enviamos una copia a <span className="font-black text-[#0c66d8]">nombre@correo.com</span>
-        </p>
-      </section>
-
-      <section className="px-8 pt-6">
-        <h2 className="text-center text-[24px] font-black">Qué mejoramos</h2>
+      <section className="px-11 pt-7">
+        <h2 className="text-left text-[24px] font-black">Cómo funciona</h2>
         <div className="mt-4 grid grid-cols-3 gap-3">
-          <ImprovedCard icon={<FileBadge2 className="h-8 w-8" />} title="Resumen optimizado">
-            Reescribimos tu perfil para hacerlo más claro, impactante y relevante.
-          </ImprovedCard>
-          <ImprovedCard icon={<BarChart3 className="h-8 w-8" />} title="Logros reforzados" tone="green">
-            Destacamos tus resultados con métricas y verbos de alto impacto.
-          </ImprovedCard>
-          <ImprovedCard icon={<LayoutTemplate className="h-8 w-8" />} title="Formato limpio" tone="purple">
-            Diseño profesional, escaneable y optimizado para los ATS.
-          </ImprovedCard>
+          <HowStep icon={<Upload className="h-9 w-9" />} number="1" title="Sube tu CV">
+            Carga tu PDF y nuestra IA lo analiza al instante.
+          </HowStep>
+          <HowStep icon={<BarChart3 className="h-9 w-9" />} number="2" title="Recibe diagnóstico">
+            Obtén tu puntaje y una lista de mejoras clave.
+          </HowStep>
+          <HowStep icon={<FileText className="h-9 w-9" />} number="3" title="Desbloquea versión mejorada">
+            Descarga tu CV optimizado listo para enviar.
+          </HowStep>
         </div>
-
-        <div className="mt-5 flex items-center gap-4 rounded-lg border border-[#e0e5ec] bg-white p-4 shadow-[0_8px_24px_rgba(15,25,55,0.05)]">
-          <div className="grid h-14 w-14 shrink-0 place-items-center rounded-full bg-[#edf5ff] text-[#0068ff]">
-            <span className="text-3xl">☊</span>
-          </div>
-          <div className="flex-1">
-            <p className="text-[18px] font-black">¿Necesitas ayuda?</p>
-            <p className="text-[15px] font-medium text-[#6a7280]">
-              Nuestro equipo está listo para apoyarte.
-            </p>
-          </div>
-          <ChevronRight className="h-7 w-7 text-[#0c66d8]" />
-        </div>
-        <ProtectedFooter className="mt-5" />
       </section>
+
+      <section className="px-11 pt-8">
+        <OfferCard onClick={() => onGo("paywall")} />
+      </section>
+
+      <ProtectedNote className="mt-5 pb-8" />
     </ScreenShell>
   );
 }
 
-function ScreenShell({
-  header,
-  children,
-  className = "",
+function UploadScreen({
+  canAnalyze,
+  dragActive,
+  file,
+  fileInputRef,
+  inputMode,
+  note,
+  pastedText,
+  onAnalyze,
+  onBack,
+  onDrag,
+  onDrop,
+  onFileChange,
+  onMode,
+  onText,
 }: {
-  header: ReactNode;
-  children: ReactNode;
-  className?: string;
+  canAnalyze: boolean;
+  dragActive: boolean;
+  file: File | null;
+  fileInputRef: React.RefObject<HTMLInputElement | null>;
+  inputMode: InputMode;
+  note: string | null;
+  pastedText: string;
+  onAnalyze: () => void;
+  onBack: () => void;
+  onDrag: (event: DragEvent<HTMLDivElement>) => void;
+  onDrop: (event: DragEvent<HTMLDivElement>) => void;
+  onFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  onMode: (mode: InputMode) => void;
+  onText: (text: string) => void;
 }) {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.24 }}
-      className={`min-h-screen bg-white ${className}`}
-    >
-      {header}
+    <ScreenShell>
+      <BackHeader onBack={onBack} />
+      <section className="px-9 pt-9 text-center">
+        <Badge icon={<CloudUpload className="h-4 w-4" />}>Carga de CV</Badge>
+        <h1 className="mt-7 text-[56px] font-black leading-none tracking-[-0.04em]">
+          Sube tu <span className="text-[#0068ff]">CV</span>
+        </h1>
+        <p className="mx-auto mt-5 max-w-[390px] text-[20px] font-medium leading-9 text-[#626a79]">
+          Carga tu archivo PDF o pega el texto de tu currículum para recibir un diagnóstico gratuito.
+        </p>
+      </section>
+
+      <section className="px-8 pt-8">
+        <div className="grid h-[66px] grid-cols-2 rounded-[14px] border border-[#dbe2ec] bg-white p-1 shadow-[0_8px_20px_rgba(15,25,55,0.04)]">
+          <TabButton active={inputMode === "pdf"} icon={<FileText className="h-6 w-6" />} onClick={() => onMode("pdf")}>
+            Archivo PDF
+          </TabButton>
+          <TabButton active={inputMode === "text"} icon={<PenLine className="h-6 w-6" />} onClick={() => onMode("text")}>
+            Pegar texto
+          </TabButton>
+        </div>
+
+        <div className="mt-7 rounded-[18px] border border-[#e8edf4] bg-white p-5 shadow-[0_14px_34px_rgba(15,25,55,0.08)]">
+          {inputMode === "pdf" ? (
+            <div
+              className={`relative grid min-h-[278px] place-items-center rounded-[14px] border-2 border-dashed p-7 text-center ${
+                dragActive ? "border-[#0068ff] bg-[#f4f8ff]" : "border-[#8aa5c7] bg-white"
+              }`}
+              onDragEnter={onDrag}
+              onDragLeave={onDrag}
+              onDragOver={onDrag}
+              onDrop={onDrop}
+            >
+              <input ref={fileInputRef} type="file" accept="application/pdf" className="sr-only" onChange={onFileChange} />
+              <button className="absolute inset-0 cursor-pointer" aria-label="Seleccionar PDF" onClick={() => fileInputRef.current?.click()} type="button" />
+              <div>
+                <div className="mx-auto grid h-[92px] w-[92px] place-items-center rounded-full bg-[#edf5ff] text-[#0068ff]">
+                  <FileText className="h-12 w-12" />
+                </div>
+                <h2 className="mt-8 text-[26px] font-black tracking-[-0.02em]">
+                  {file ? file.name : <>Arrastra o <span className="text-[#0068ff]">selecciona</span> tu CV</>}
+                </h2>
+                <p className="mt-4 text-[20px] font-medium text-[#8a929f]">Solo PDF · Máx. 10 MB</p>
+              </div>
+            </div>
+          ) : (
+            <textarea
+              value={pastedText}
+              onChange={(event) => onText(event.target.value)}
+              className="min-h-[278px] w-full resize-none rounded-[14px] border-2 border-dashed border-[#8aa5c7] bg-white p-6 text-[17px] leading-8 text-[#070b2f] outline-none placeholder:text-[#8a929f]"
+              placeholder="Pega aquí el texto de tu currículum para recibir el diagnóstico visual."
+            />
+          )}
+        </div>
+
+        <div className="mt-6 flex items-center gap-5 rounded-[16px] border border-[#e7edf5] bg-white p-5 shadow-[0_10px_26px_rgba(15,25,55,0.05)]">
+          <div className="grid h-[72px] w-[72px] shrink-0 place-items-center rounded-full bg-[#edf5ff] text-[#0068ff]">
+            <ShieldCheck className="h-11 w-11" />
+          </div>
+          <p className="text-[18px] font-medium leading-8 text-[#626a79]">
+            <span className="font-black text-[#070b2f]">Tus datos están protegidos.</span> No compartimos tu información y tu archivo se usa solo para el análisis.
+          </p>
+        </div>
+
+        {note ? <p className="mt-4 rounded-[12px] bg-[#fff7e9] px-4 py-3 text-[14px] font-bold leading-6 text-[#935a12]">{note}</p> : null}
+
+        <button className="mt-7 flex h-[66px] w-full items-center justify-center gap-4 rounded-[13px] bg-[#0068ff] text-[22px] font-black text-white shadow-[0_12px_24px_rgba(0,104,255,0.24)] disabled:bg-[#9fc7ff]" disabled={!canAnalyze} onClick={onAnalyze}>
+          <Sparkles className="h-7 w-7" />
+          Analizar mi CV
+        </button>
+      </section>
+    </ScreenShell>
+  );
+}
+
+function AnalyzingScreen({ fileName }: { fileName: string }) {
+  return (
+    <ScreenShell>
+      <SimpleHeader />
+      <section className="px-10 pt-10 text-center">
+        <Badge icon={<Sparkles className="h-4 w-4" />}>Procesando tu CV</Badge>
+        <h1 className="mt-7 text-[48px] font-black leading-none tracking-[-0.04em]">Analizando tu CV</h1>
+        <p className="mt-5 text-[18px] font-medium text-[#626a79]">Estamos revisando estructura, claridad y formato.</p>
+        <div className="mt-8">
+          <ProgressRing value={72} mode="percent" size={205} />
+        </div>
+      </section>
+
+      <section className="px-10 pt-7">
+        <div className="flex items-center gap-6 rounded-[14px] border border-[#e4e9f0] bg-white p-5 shadow-[0_10px_26px_rgba(15,25,55,0.06)]">
+          <PdfIcon />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[22px] font-black">{fileName}</p>
+            <p className="mt-1 text-[16px] font-medium text-[#626a79]">4.4 KB · PDF</p>
+          </div>
+          <CheckCircle2 className="h-10 w-10 shrink-0 text-[#18b965]" />
+        </div>
+
+        <div className="mt-5 rounded-[15px] border border-[#e4e9f0] bg-white p-7 shadow-[0_10px_26px_rgba(15,25,55,0.06)]">
+          <TimelineStep done number="1" title="Extrayendo texto">Obteniendo y estructurando el texto de tu documento.</TimelineStep>
+          <TimelineStep done number="2" title="Analizando contenido">Evaluando claridad, relevancia y estructura.</TimelineStep>
+          <TimelineStep active number="3" title="Optimizando formato">Mejorando presentación, secciones y legibilidad.</TimelineStep>
+          <TimelineStep number="4" title="Generando versión mejorada">Redactando sugerencias y preparando tu CV optimizado.</TimelineStep>
+        </div>
+
+        <div className="mt-6 flex items-center justify-center gap-3 border-b border-[#edf0f5] pb-5 text-[18px] font-medium text-[#626a79]">
+          <Clock3 className="h-7 w-7 text-[#0068ff]" />
+          Esto tarda menos de 1 minuto
+        </div>
+      </section>
+
+      <section className="px-10 pt-5 pb-8">
+        <h2 className="text-[25px] font-black">¿Qué estamos evaluando?</h2>
+        <div className="mt-4 grid grid-cols-3 gap-3">
+          <EvalCard icon={<FileText className="h-8 w-8" />} title="Formato">Estructura, orden y legibilidad del CV.</EvalCard>
+          <EvalCard icon={<UserRound className="h-8 w-8" />} title="Contenido">Relevancia, claridad y palabras clave.</EvalCard>
+          <EvalCard icon={<Star className="h-8 w-8" />} title="Impacto">Alineación con el puesto y resultados.</EvalCard>
+        </div>
+      </section>
+    </ScreenShell>
+  );
+}
+
+function DiagnosisScreen({
+  analysis,
+  note,
+  onBack,
+  onUnlock,
+}: {
+  analysis: AnalysisResponse;
+  note: string | null;
+  onBack: () => void;
+  onUnlock: () => void;
+}) {
+  return (
+    <ScreenShell>
+      <BackHeader onBack={onBack} />
+      <section className="px-10 pt-5 text-center">
+        <Badge icon={<Sparkles className="h-4 w-4" />}>Diagnóstico gratuito</Badge>
+        <h1 className="mt-6 text-[44px] font-black leading-none tracking-[-0.035em]">Tu diagnóstico</h1>
+        <p className="mt-4 text-[18px] font-medium text-[#626a79]">Detectamos oportunidades de mejora en tu CV.</p>
+      </section>
+
+      <section className="px-10 pt-6 pb-7">
+        <div className="grid grid-cols-[155px_1fr] items-center gap-7 rounded-[15px] border border-[#e4e9f0] bg-white p-6 shadow-[0_10px_26px_rgba(15,25,55,0.06)]">
+          <ProgressRing value={analysis.score || 78} mode="score" size={135} />
+          <div className="border-l border-[#e8edf4] pl-8">
+            <h2 className="text-[24px] font-black leading-tight">Buen potencial, pero hay áreas a mejorar.</h2>
+            <p className="mt-5 text-[16px] font-medium leading-7 text-[#626a79]">Tu CV tiene una base sólida. Con algunos ajustes, puedes aumentar su claridad, relevancia e impacto.</p>
+          </div>
+        </div>
+
+        {note ? <p className="mt-4 rounded-[12px] bg-[#fff7e9] px-4 py-3 text-[14px] font-bold leading-6 text-[#935a12]">{note}</p> : null}
+
+        <SectionTitle number="1" title="Problemas detectados" />
+        <div className="rounded-[15px] border border-[#e4e9f0] bg-white shadow-[0_8px_22px_rgba(15,25,55,0.05)]">
+          {problemRows(analysis).map((item) => <ProblemLine key={item.label} {...item} />)}
+        </div>
+
+        <SectionTitle number="2" title="Secciones detectadas" />
+        <div className="flex flex-wrap gap-3">
+          <Chip ok>Experiencia</Chip>
+          <Chip ok>Educación</Chip>
+          <Chip ok>Habilidades</Chip>
+          <Chip warn>Falta: {analysis.missingSections[0] || "Resumen"}</Chip>
+        </div>
+
+        <SectionTitle number="3" title="Recomendaciones clave" />
+        <div className="grid grid-cols-3 gap-3">
+          <RecoCard icon={<UserRound className="h-7 w-7" />} title="Mejora el resumen">Añade un resumen profesional claro que comunique tu valor.</RecoCard>
+          <RecoCard icon={<BarChart3 className="h-7 w-7" />} title="Refuerza logros">Cuantifica resultados para demostrar el impacto de tu trabajo.</RecoCard>
+          <RecoCard icon={<Search className="h-7 w-7" />} title="Optimiza palabras clave">Incluye términos relevantes para destacar.</RecoCard>
+        </div>
+
+        <SectionTitle number="4" title="Versión mejorada" />
+        <LockedPreview />
+
+        <button className="mt-4 flex h-[56px] w-full items-center justify-center gap-4 rounded-[8px] bg-[#0068ff] text-[20px] font-black text-white shadow-[0_10px_22px_rgba(0,104,255,0.22)]" onClick={onUnlock}>
+          <Lock className="h-7 w-7" />
+          Desbloquear mi CV mejorado
+        </button>
+
+        <div className="mt-5 grid grid-cols-3 divide-x divide-[#e2e8f0] text-center text-[14px] font-medium text-[#626a79]">
+          <TrustItem icon={<FileDown className="h-7 w-7" />}>Pago único</TrustItem>
+          <TrustItem icon={<FileText className="h-7 w-7" />}>Descarga en PDF</TrustItem>
+          <TrustItem icon={<ShieldCheck className="h-7 w-7" />}>Pago seguro</TrustItem>
+        </div>
+      </section>
+    </ScreenShell>
+  );
+}
+
+function PaywallScreen({ onBack, onUnlock }: { onBack: () => void; onUnlock: () => void }) {
+  return (
+    <ScreenShell>
+      <div className="px-10 pt-9">
+        <button aria-label="Volver" className="mb-5 text-[#070b2f]" onClick={onBack}>
+          <ArrowLeft className="h-9 w-9" />
+        </button>
+        <div className="flex justify-center">
+          <BrandLogo large />
+        </div>
+      </div>
+      <section className="px-10 pt-10 text-center">
+        <h1 className="text-[48px] font-black leading-[1.02] tracking-[-0.04em]">
+          Desbloquea tu
+          <span className="block text-[#0068ff]">CV mejorado</span>
+        </h1>
+        <p className="mt-5 text-[19px] font-medium text-[#626a79]">Conoce lo que ya optimizamos en tu documento.</p>
+      </section>
+
+      <section className="px-10 pt-6 pb-8">
+        <div className="grid grid-cols-[1fr_1fr] gap-5 rounded-[16px] border border-[#e4e9f0] bg-white p-5 shadow-[0_10px_26px_rgba(15,25,55,0.05)]">
+          <MiniCvLocked />
+          <div className="text-left">
+            <h2 className="text-[21px] font-black">Vista final protegida</h2>
+            <p className="mt-3 text-[18px] font-medium leading-8 text-[#626a79]">Tu nueva versión está lista para ayudarte a destacar.</p>
+          </div>
+        </div>
+
+        <div className="mt-6 rounded-[16px] border border-[#e4e9f0] bg-white p-6 shadow-[0_10px_26px_rgba(15,25,55,0.05)]">
+          <h2 className="text-center text-[25px] font-black">Tu nueva versión incluye</h2>
+          <FeatureLine icon={<PenLine className="h-7 w-7" />}>Resumen profesional reescrito</FeatureLine>
+          <FeatureLine icon={<Trophy className="h-7 w-7" />}>Logros más claros</FeatureLine>
+          <FeatureLine icon={<FileText className="h-7 w-7" />}>Formato limpio</FeatureLine>
+          <FeatureLine icon={<Layers3 className="h-7 w-7" />}>Secciones reorganizadas</FeatureLine>
+          <FeatureLine icon={<Search className="h-7 w-7" />}>Palabras clave reforzadas</FeatureLine>
+          <FeatureLine icon={<Download className="h-7 w-7" />}>PDF listo para descargar</FeatureLine>
+        </div>
+
+        <div className="mt-6 rounded-[16px] border border-[#e4e9f0] bg-white p-6 text-center shadow-[0_10px_26px_rgba(15,25,55,0.05)]">
+          <div className="flex items-end justify-center gap-6">
+            <span className="pb-3 text-[28px] font-bold text-[#6f7682] line-through">$99 MXN</span>
+            <span className="text-[70px] font-black leading-none text-[#0068ff]">$49</span>
+            <span className="pb-4 text-[23px] font-black text-[#0068ff]">MXN</span>
+          </div>
+          <p className="mt-2 text-[17px] font-medium text-[#626a79]">Pago único · Sin suscripciones</p>
+          <button className="mt-6 flex h-[58px] w-full items-center justify-center gap-4 rounded-[10px] bg-[#0068ff] text-[20px] font-black text-white" onClick={onUnlock}>
+            Desbloquear mi CV profesional
+            <ArrowRight className="h-7 w-7" />
+          </button>
+        </div>
+
+        <div className="mt-5 grid grid-cols-3 divide-x divide-[#e2e8f0] rounded-[13px] border border-[#e7edf5] bg-white py-3 text-center text-[13px] font-black text-[#070b2f]">
+          <TrustItem icon={<ShieldCheck className="h-8 w-8" />}>Pago único</TrustItem>
+          <TrustItem icon={<Sparkles className="h-8 w-8" />}>Entrega inmediata</TrustItem>
+          <TrustItem icon={<Lock className="h-8 w-8" />}>Tus datos están protegidos</TrustItem>
+        </div>
+      </section>
+    </ScreenShell>
+  );
+}
+
+function SuccessScreen({
+  analysis,
+  fileName,
+  onDoc,
+  onHome,
+  onPdf,
+}: {
+  analysis: AnalysisResponse;
+  fileName: string;
+  onDoc: () => void;
+  onHome: () => void;
+  onPdf: () => void;
+}) {
+  return (
+    <ScreenShell>
+      <header className="flex items-center justify-between px-8 pt-8">
+        <BrandLogo />
+        <button className="flex h-[45px] items-center gap-3 rounded-[8px] border border-[#cad8e8] bg-white px-5 text-[17px] font-black text-[#0c55b8]" onClick={onHome}>
+          <Home className="h-5 w-5" />
+          Ir al inicio
+        </button>
+      </header>
+
+      <section className="px-10 pt-9 text-center">
+        <div className="mx-auto grid h-[118px] w-[118px] place-items-center rounded-full bg-[#e4f9ef] text-[#0fbd68] shadow-[0_0_0_18px_rgba(228,249,239,0.45)]">
+          <Check className="h-16 w-16" strokeWidth={5} />
+        </div>
+        <h1 className="mt-10 text-[48px] font-black leading-none tracking-[-0.04em]">¡Tu CV está listo!</h1>
+        <p className="mt-5 text-[20px] font-medium text-[#626a79]">Hemos generado tu versión mejorada.</p>
+      </section>
+
+      <section className="px-10 pt-8 pb-8">
+        <div className="flex items-center gap-6 rounded-[16px] border border-[#e4e9f0] bg-white p-6 shadow-[0_10px_26px_rgba(15,25,55,0.06)]">
+          <PdfIcon large />
+          <div className="min-w-0 flex-1 text-left">
+            <p className="truncate text-[25px] font-black">CV_Josue_Bravo_BlankATS.pdf</p>
+            <span className="mt-4 inline-flex items-center gap-2 rounded-full bg-[#dff8ec] px-4 py-2 text-[16px] font-black text-[#129853]">
+              <CheckCircle2 className="h-5 w-5" />
+              Generado
+            </span>
+          </div>
+        </div>
+
+        <div className="mt-7 space-y-4">
+          <button className="flex h-[64px] w-full items-center justify-center gap-4 rounded-[10px] bg-[#0068ff] text-[22px] font-black text-white shadow-[0_12px_24px_rgba(0,104,255,0.24)]" onClick={onPdf} disabled={!analysis.deliveryDecision.allowDownload}>
+            <Download className="h-8 w-8" />
+            Descargar PDF
+          </button>
+          <button className="flex h-[58px] w-full items-center justify-center gap-4 rounded-[10px] border border-[#0068ff] bg-white text-[20px] font-black text-[#0068ff]" onClick={onDoc}>
+            <FileDown className="h-7 w-7" />
+            Descargar DOCX
+          </button>
+        </div>
+
+        <h2 className="mt-9 text-center text-[25px] font-black">Qué mejoramos</h2>
+        <div className="mt-5 grid grid-cols-3 gap-4">
+          <ImprovedCard icon={<FileText className="h-9 w-9" />} title="Resumen optimizado">Reescribimos tu perfil para hacerlo más claro, impactante y relevante.</ImprovedCard>
+          <ImprovedCard icon={<BarChart3 className="h-9 w-9" />} title="Logros reforzados" tone="green">Destacamos tus resultados con métricas y verbos de alto impacto.</ImprovedCard>
+          <ImprovedCard icon={<Layers3 className="h-9 w-9" />} title="Formato limpio" tone="purple">Diseño profesional, escaneable y optimizado para los ATS.</ImprovedCard>
+        </div>
+
+        <ProtectedNote className="mt-9" />
+        <p className="sr-only">Archivo original: {fileName}</p>
+      </section>
+    </ScreenShell>
+  );
+}
+
+function ScreenShell({ children }: { children: ReactNode }) {
+  return (
+    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22 }} className="min-h-screen bg-white">
       {children}
     </motion.div>
   );
 }
 
-function TopHeader({
-  action,
-  onAction,
-  left,
-  right,
-  onBack,
-}: {
-  action?: string;
-  onAction?: () => void;
-  left?: "back" | "chevron";
-  right?: "share";
-  onBack?: () => void;
-}) {
+function SimpleHeader() {
   return (
-    <header className="flex h-[66px] items-center justify-between border-b border-[#eceff3] px-8">
-      <div className="flex items-center gap-3">
-        {left ? (
-          <button
-            onClick={onBack}
-            className="mr-3 grid h-11 w-11 place-items-center rounded-lg border border-[#e1e5eb] bg-white text-[#070b2f]"
-            aria-label="Volver"
-          >
-            <ArrowLeft className="h-7 w-7" />
-          </button>
-        ) : null}
-        {left === "chevron" ? null : <BrandMark />}
-      </div>
-
-      {left === "chevron" ? (
-        <div className="absolute left-1/2 flex -translate-x-1/2 items-center">
-          <BrandMark centered />
-        </div>
-      ) : null}
-
-      {action ? (
-        <button
-          onClick={onAction}
-          className="rounded-lg border border-[#e0e5ec] bg-white px-5 py-3 text-[15px] font-black text-[#0c55b8] shadow-[0_4px_12px_rgba(10,20,50,0.05)]"
-        >
-          {action}
-        </button>
-      ) : null}
-      {right === "share" ? (
-        <button className="grid h-11 w-11 place-items-center rounded-lg border border-[#e1e5eb] bg-white text-[#0c66d8]">
-          <Upload className="h-6 w-6" />
-        </button>
-      ) : null}
+    <header className="px-9 pt-8">
+      <BrandLogo />
     </header>
   );
 }
 
-function BrandMark({ centered = false }: { centered?: boolean }) {
+function BackHeader({ onBack }: { onBack: () => void }) {
   return (
-    <div className={`flex items-center gap-3 ${centered ? "scale-95" : ""}`}>
-      <Image
-        src="/blankats-wordmark.png"
-        alt="BlankATS"
-        width={235}
-        height={70}
-        priority
-        className="h-11 w-auto object-contain"
-      />
-    </div>
+    <header className="flex items-center gap-5 px-8 pt-8">
+      <button aria-label="Volver" className="text-[#070b2f]" onClick={onBack}>
+        <ArrowLeft className="h-9 w-9" />
+      </button>
+      <BrandLogo />
+    </header>
   );
 }
 
-function Pill({ children, icon }: { children: ReactNode; icon: ReactNode }) {
+function BrandLogo({ large = false }: { large?: boolean }) {
   return (
-    <div className="mx-auto inline-flex items-center gap-2 rounded-full bg-[#edf5ff] px-4 py-2 text-[14px] font-black text-[#0c55b8] shadow-inner">
+    <Image
+      src="/blankats-wordmark.png"
+      alt="BlankATS"
+      width={640}
+      height={190}
+      priority
+      className={`${large ? "h-[64px]" : "h-[45px]"} w-auto object-contain`}
+    />
+  );
+}
+
+function Badge({ children, icon }: { children: ReactNode; icon: ReactNode }) {
+  return (
+    <span className="inline-flex items-center gap-3 rounded-full border border-[#dbe8f8] bg-[#edf5ff] px-5 py-2 text-[17px] font-black text-[#0c55b8] shadow-[inset_0_1px_1px_rgba(255,255,255,0.9)]">
       <span className="text-[#0068ff]">{icon}</span>
       {children}
-    </div>
+    </span>
   );
 }
 
-function PrimaryButton({
-  children,
-  onClick,
-  icon,
-}: {
-  children: ReactNode;
-  onClick: () => void;
-  icon?: ReactNode;
-}) {
+function HomeScoreCard() {
   return (
-    <button
-      onClick={onClick}
-      className="flex h-16 w-full items-center justify-center gap-4 rounded-lg bg-[#0068ff] px-6 text-[20px] font-black text-white shadow-[0_10px_24px_rgba(0,104,255,0.25)]"
-    >
-      {icon}
-      {children}
-      <ArrowRight className="h-7 w-7" />
-    </button>
-  );
-}
-
-function OutlineButton({
-  children,
-  onClick,
-  icon,
-}: {
-  children: ReactNode;
-  onClick: () => void;
-  icon?: ReactNode;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className="flex h-14 w-full items-center justify-center gap-4 rounded-lg border border-[#0c66d8] bg-white px-6 text-[17px] font-black text-[#0c55b8]"
-    >
-      {icon}
-      {children}
-      {!icon ? <span className="text-[#0068ff]">▶</span> : null}
-    </button>
-  );
-}
-
-function DiagnosticSummaryCard() {
-  return (
-    <div className="rounded-lg border border-[#e0e5ec] bg-white p-4 text-left shadow-[0_10px_30px_rgba(15,25,55,0.07)]">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="grid h-12 w-12 place-items-center rounded-lg bg-[#edf5ff] text-[#0068ff]">
-            <FileText className="h-7 w-7" />
-          </div>
-          <div>
-            <h2 className="text-[16px] font-black">Diagnóstico de tu CV</h2>
-            <p className="text-[12px] font-medium text-[#606a7a]">Analizado hoy · Versión actual</p>
-          </div>
-        </div>
-        <span className="inline-flex items-center gap-2 rounded-full bg-[#e9f9f0] px-3 py-2 text-[12px] font-black text-[#19a65b]">
-          <CheckCircle2 className="h-4 w-4" /> Análisis completado
+    <div className="grid grid-cols-[160px_1fr] items-center gap-7 rounded-[15px] border border-[#e4e9f0] bg-white p-6 shadow-[0_10px_26px_rgba(15,25,55,0.07)]">
+      <ProgressRing value={78} mode="score" size={135} />
+      <div className="border-l border-[#e8edf4] pl-7 text-left">
+        <h2 className="text-[25px] font-black">Buen potencial</h2>
+        <span className="mt-3 inline-flex items-center gap-2 rounded-full bg-[#def8eb] px-4 py-2 text-[16px] font-black text-[#129853]">
+          <CheckCircle2 className="h-5 w-5" />
+          Análisis completado
         </span>
-      </div>
-      <div className="mt-4 grid grid-cols-[110px_1fr] gap-4">
-        <div className="text-center">
-          <ProgressRing percent={78} score compact />
-          <p className="mt-3 text-[14px] font-black">Puntuación ATS</p>
-          <p className="mt-1 text-[13px] font-bold text-[#0c66d8]">Buen potencial</p>
-        </div>
-        <div className="rounded-lg border border-[#e9edf3] p-3">
-          <h3 className="text-[12px] font-black">Problemas detectados</h3>
-          <TinyProblem text="Faltan palabras clave relevantes" count="6" tone="red" />
-          <TinyProblem text="Formato menos compatible" count="3" tone="amber" />
-          <TinyProblem text="Secciones mejorables" count="2" tone="blue" />
-        </div>
-      </div>
-      <div className="mt-4">
-        <h3 className="text-[12px] font-black">Recomendaciones clave</h3>
-        <div className="mt-2 grid grid-cols-2 gap-2">
-          <MiniPill icon={<Target className="h-4 w-4" />}>Añadir logros cuantificables</MiniPill>
-          <MiniPill icon={<ListChecks className="h-4 w-4" />}>Optimizar resumen</MiniPill>
-          <MiniPill icon={<Search className="h-4 w-4" />}>Incluir keywords del puesto</MiniPill>
-          <MiniPill icon={<BriefcaseBusiness className="h-4 w-4" />}>Mejorar experiencia</MiniPill>
-        </div>
+        <TinyIssue icon={<AlertTriangle className="h-5 w-5" />} text="Faltan palabras clave relevantes" />
+        <TinyIssue icon={<AlertTriangle className="h-5 w-5" />} text="Formato menos compatible" amber />
+        <TinyIssue icon={<Circle className="h-5 w-5" />} text="Poca cuantificación de logros" blue />
       </div>
     </div>
   );
 }
 
-function ProgressRing({
-  percent,
-  label,
-  score = false,
-  compact = false,
-  size = "normal",
-}: {
-  percent: number;
-  label?: string;
-  score?: boolean;
-  compact?: boolean;
-  size?: "normal" | "large";
-}) {
-  const px = size === "large" ? 190 : compact ? 92 : 125;
+function ProgressRing({ value, mode, size }: { value: number; mode: "score" | "percent"; size: number }) {
+  const inner = size - 24;
   return (
-    <div className="mx-auto grid place-items-center">
-      <div
-        className="relative grid place-items-center rounded-full"
-        style={{
-          width: px,
-          height: px,
-          background: `conic-gradient(${blue} 0deg ${percent * 3.6}deg, #e9f1ff ${percent * 3.6}deg 360deg)`,
-        }}
-      >
-        <div
-          className="grid place-items-center rounded-full bg-white"
-          style={{ width: px - 20, height: px - 20 }}
-        >
-          <div className="text-center">
-            <p className={`${size === "large" ? "text-[50px]" : "text-[38px]"} font-black leading-none text-[#070b2f]`}>
-              {percent}
-              {score ? "" : "%"}
-            </p>
-            <p className={`${size === "large" ? "text-[20px]" : "text-[16px]"} font-bold text-[#0c66d8]`}>
-              {score ? "/100" : label}
-            </p>
-          </div>
+    <div className="mx-auto grid place-items-center rounded-full" style={{ width: size, height: size, background: `conic-gradient(${blue} 0deg ${value * 3.6}deg, #e8f1ff ${value * 3.6}deg 360deg)` }}>
+      <div className="grid place-items-center rounded-full bg-white" style={{ width: inner, height: inner }}>
+        <div className="text-center">
+          <p className={`${mode === "percent" ? "text-[54px]" : "text-[48px]"} font-black leading-none tracking-[-0.04em]`}>
+            {value}
+            {mode === "percent" ? <span className="text-[27px]">%</span> : null}
+          </p>
+          <p className={`${mode === "percent" ? "mt-2 text-[20px] text-[#626a79]" : "mt-2 text-[20px] text-[#626a79]"} font-medium`}>
+            {mode === "percent" ? "Analizando..." : "/100"}
+          </p>
         </div>
       </div>
     </div>
   );
 }
 
-function StepItem({
-  icon,
-  number,
-  title,
-  children,
-}: {
-  icon: ReactNode;
-  number: string;
-  title: string;
-  children: ReactNode;
-}) {
+function TinyIssue({ amber, blue: isBlue, icon, text }: { amber?: boolean; blue?: boolean; icon: ReactNode; text: string }) {
+  return (
+    <div className="mt-4 flex items-center gap-4 border-b border-[#eef2f6] pb-3 last:border-b-0">
+      <span className={amber ? "text-[#d48624]" : isBlue ? "text-[#0c66d8]" : "text-[#cf334b]"}>{icon}</span>
+      <span className="flex-1 text-[15px] font-medium">{text}</span>
+      <ChevronRight className="h-5 w-5 text-[#9ba4b2]" />
+    </div>
+  );
+}
+
+function HowStep({ children, icon, number, title }: { children: ReactNode; icon: ReactNode; number: string; title: string }) {
   return (
     <div className="text-center">
-      <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-[#edf5ff] text-[#0068ff]">
+      <div className="relative mx-auto grid h-[76px] w-[76px] place-items-center rounded-full bg-[#edf5ff] text-[#0068ff]">
+        <span className="absolute -left-1 -top-2 grid h-7 w-7 place-items-center rounded-full bg-[#0068ff] text-[16px] font-black text-white">{number}</span>
         {icon}
       </div>
-      <div className="mt-4 flex items-start justify-center gap-2">
-        <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-[#0068ff] text-[12px] font-black text-white">
-          {number}
-        </span>
-        <p className="text-[13px] font-black leading-4">{title}</p>
-      </div>
-      <p className="mt-2 text-[12px] font-medium leading-5 text-[#6a7280]">{children}</p>
+      <h3 className="mt-4 text-[15px] font-black leading-5">{title}</h3>
+      <p className="mt-2 text-[13px] font-medium leading-5 text-[#626a79]">{children}</p>
     </div>
   );
 }
 
-function LaunchOffer({ compact, onClick }: { compact?: boolean; onClick: () => void }) {
+function OfferCard({ onClick }: { onClick: () => void }) {
   return (
-    <div className="rounded-lg border border-[#cbdbea] bg-[#fbfdff] p-5 shadow-[0_8px_26px_rgba(15,25,55,0.05)]">
-      <div className={compact ? "grid grid-cols-[1fr_1fr] gap-4" : ""}>
+    <div className="rounded-[15px] border border-[#e4e9f0] bg-white p-5 shadow-[0_10px_26px_rgba(15,25,55,0.06)]">
+      <div className="grid grid-cols-[84px_1fr_22px] items-center gap-5">
+        <div className="grid h-[78px] w-[78px] place-items-center rounded-full bg-white text-[#0068ff] shadow-[0_8px_24px_rgba(15,25,55,0.10)]">
+          <Trophy className="h-10 w-10" />
+        </div>
         <div>
-          <span className="rounded-full bg-[#edf5ff] px-4 py-2 text-[12px] font-black text-[#0c55b8]">
-            Oferta de lanzamiento
-          </span>
-          <div className="mt-4 flex items-end gap-2">
+          <h2 className="text-[22px] font-black">Desbloquea tu CV profesional</h2>
+          <p className="mt-1 text-[15px] font-medium text-[#626a79]">Versión más clara, ordenada y lista para destacar.</p>
+          <div className="mt-4 flex items-end gap-4">
+            <span className="pb-2 text-[22px] font-bold text-[#6f7682] line-through">$99 MXN</span>
             <span className="text-[48px] font-black leading-none">$49</span>
-            <span className="pb-2 text-[16px] font-black text-[#0068ff]">MXN</span>
+            <span className="pb-2 text-[19px] font-black text-[#0068ff]">MXN</span>
+            <span className="mb-2 rounded-full bg-[#edf5ff] px-3 py-1 text-[12px] font-black text-[#0c55b8]">Pago único</span>
           </div>
-          <p className="mt-1 text-[13px] font-medium text-[#5f6673]">
-            Pago único · Sin suscripciones
-          </p>
-          <p className="mt-3 flex items-center gap-2 text-[13px] font-black text-[#5f6673]">
-            <Lock className="h-4 w-4 text-[#0068ff]" /> Pago seguro
-          </p>
         </div>
-        <div className={compact ? "border-l border-[#d8e1ec] pl-5" : "mt-4"}>
-          <h3 className="text-[16px] font-black">Desbloquea tu CV profesional</h3>
-          {["Versión optimizada para ATS", "Descarga en PDF", "Revisión de palabras clave", "Soporte prioritario"].map((item) => (
-            <p key={item} className="mt-2 flex items-center gap-2 text-[13px] font-medium text-[#5f6673]">
-              <CheckCircle2 className="h-4 w-4 text-[#0c66d8]" />
-              {item}
-            </p>
-          ))}
-        </div>
+        <ChevronRight className="h-8 w-8 text-[#778293]" />
       </div>
-      <button
-        onClick={onClick}
-        className="mt-5 flex h-14 w-full items-center justify-center gap-3 rounded-lg bg-[#0068ff] text-[17px] font-black text-white"
-      >
-        Desbloquear mi CV profesional <ArrowRight className="h-6 w-6" />
+      <button className="mt-5 flex h-[55px] w-full items-center justify-center gap-3 rounded-[8px] bg-[#0068ff] text-[18px] font-black text-white" onClick={onClick}>
+        <Lock className="h-5 w-5" />
+        Desbloquear mi CV profesional
       </button>
     </div>
   );
 }
 
-function ProtectedFooter({ className = "" }: { className?: string }) {
+function ProtectedNote({ className = "" }: { className?: string }) {
   return (
-    <div className={`flex items-center justify-center gap-3 px-8 text-center ${className}`}>
-      <ShieldCheck className="h-8 w-8 shrink-0 text-[#0068ff]" />
-      <p className="text-[14px] font-medium leading-5 text-[#5f6673]">
+    <div className={`flex items-center justify-center gap-4 text-center ${className}`}>
+      <ShieldCheck className="h-9 w-9 text-[#0068ff]" />
+      <p className="text-[16px] font-medium leading-6 text-[#626a79]">
         <span className="font-black text-[#070b2f]">Tus datos están protegidos.</span>
         <br />
         No compartimos tu información.
@@ -915,178 +1022,109 @@ function ProtectedFooter({ className = "" }: { className?: string }) {
   );
 }
 
-function PdfDocumentIcon({ large = false }: { large?: boolean }) {
+function TabButton({ active, children, icon, onClick }: { active: boolean; children: ReactNode; icon: ReactNode; onClick: () => void }) {
   return (
-    <div className={`${large ? "h-24 w-24" : "h-16 w-16"} grid place-items-center rounded-lg bg-[#fff1f1]`}>
-      <div className={`${large ? "h-20 w-16" : "h-12 w-10"} relative rounded-md border border-[#d5dbe4] bg-white shadow-sm`}>
-        <div className="absolute -right-px -top-px h-4 w-4 rounded-bl-md bg-[#dfe6ef]" />
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded bg-[#e92e34] px-2 py-1 text-[12px] font-black text-white">
-          PDF
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function AnalyzeRow({
-  index,
-  text,
-  done,
-  active,
-}: {
-  index: string;
-  text: string;
-  done?: boolean;
-  active?: boolean;
-}) {
-  return (
-    <div className="flex items-center gap-4 border-b border-[#edf0f5] px-5 py-4 last:border-b-0">
-      <span
-        className={`grid h-8 w-8 place-items-center rounded-full text-[16px] font-black ${
-          done ? "bg-[#12b861] text-white" : active ? "bg-[#0068ff] text-white" : "bg-[#eef2f7] text-[#808a99]"
-        }`}
-      >
-        {index}
-      </span>
-      <span className={`flex-1 text-[17px] font-black ${done || active ? "text-[#070b2f]" : "text-[#7c8594]"}`}>
-        {text}
-      </span>
-      {done ? <CheckCircle2 className="h-7 w-7 text-[#12b861]" /> : null}
-      {active ? <span className="h-7 w-7 rounded-full border-4 border-dotted border-[#0c66d8]" /> : null}
-      {!done && !active ? <Circle className="h-7 w-7 text-[#c5ccd6]" /> : null}
-    </div>
-  );
-}
-
-function EvalCard({
-  icon,
-  title,
-  children,
-}: {
-  icon: ReactNode;
-  title: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className="rounded-lg border border-[#e6ebf2] bg-white p-4 text-center shadow-[0_6px_16px_rgba(15,25,55,0.04)]">
-      <div className="mx-auto grid h-12 w-12 place-items-center rounded-lg bg-[#edf5ff] text-[#0068ff]">
-        {icon}
-      </div>
-      <h3 className="mt-3 text-[16px] font-black">{title}</h3>
-      <p className="mt-2 text-[12px] font-medium leading-5 text-[#616b79]">{children}</p>
-    </div>
-  );
-}
-
-function NumberedPanel({
-  number,
-  title,
-  children,
-}: {
-  number: string;
-  title: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className="mt-4 rounded-lg border border-[#e0e5ec] bg-white p-3">
-      <h2 className="mb-3 text-[17px] font-black">
-        {number}. {title}
-      </h2>
+    <button className={`flex items-center justify-center gap-4 rounded-[10px] text-[20px] font-black ${active ? "bg-[#0068ff] text-white shadow-[0_8px_16px_rgba(0,104,255,0.22)]" : "text-[#5f6673]"}`} onClick={onClick}>
+      {icon}
       {children}
+    </button>
+  );
+}
+
+function PdfIcon({ large = false }: { large?: boolean }) {
+  return (
+    <div className={`grid ${large ? "h-[92px] w-[92px]" : "h-[62px] w-[62px]"} place-items-center rounded-[10px] border border-[#f1d7d7] bg-white text-[#e1242f]`}>
+      <FileText className={large ? "h-12 w-12" : "h-9 w-9"} />
+      <span className="-mt-2 text-[13px] font-black">PDF</span>
     </div>
   );
 }
 
-function ProblemRow({
-  icon,
-  label,
-  severity,
-  tone,
-}: {
-  icon: "alert" | "warning" | "info";
-  label: string;
-  severity: string;
-  tone: "red" | "amber" | "blue";
-}) {
-  const classes = {
-    red: "bg-[#ffecef] text-[#cf334b]",
-    amber: "bg-[#fff3e3] text-[#b96b13]",
-    blue: "bg-[#edf5ff] text-[#0c66d8]",
+function TimelineStep({ active, children, done, number, title }: { active?: boolean; children: ReactNode; done?: boolean; number: string; title: string }) {
+  return (
+    <div className="grid grid-cols-[46px_1fr] gap-5 pb-7 last:pb-0">
+      <div className="relative flex justify-center">
+        {number !== "4" ? <span className="absolute top-9 h-full w-px bg-[#d6f2e5]" /> : null}
+        <span className={`relative z-10 grid h-9 w-9 place-items-center rounded-full text-[17px] font-black ${done ? "bg-[#9ff0c8] text-[#0f9f57]" : active ? "border-4 border-[#0068ff] bg-white text-[#0068ff]" : "bg-[#eef2f7] text-[#6f7682]"}`}>
+          {done ? <Check className="h-5 w-5" strokeWidth={4} /> : active ? "" : number}
+        </span>
+      </div>
+      <div>
+        <h3 className={`text-[22px] font-black ${active ? "text-[#0068ff]" : "text-[#070b2f]"}`}>{number}.&nbsp;&nbsp;{title}</h3>
+        <p className="mt-2 text-[16px] font-medium leading-7 text-[#626a79]">{children}</p>
+      </div>
+    </div>
+  );
+}
+
+function EvalCard({ children, icon, title }: { children: ReactNode; icon: ReactNode; title: string }) {
+  return (
+    <div className="rounded-[14px] border border-[#e4e9f0] bg-white p-4 text-center shadow-[0_8px_20px_rgba(15,25,55,0.05)]">
+      <div className="mx-auto grid h-12 w-12 place-items-center rounded-[12px] bg-[#edf5ff] text-[#0068ff]">{icon}</div>
+      <h3 className="mt-4 text-[18px] font-black">{title}</h3>
+      <p className="mt-3 text-[14px] font-medium leading-6 text-[#626a79]">{children}</p>
+    </div>
+  );
+}
+
+function problemRows(analysis: AnalysisResponse) {
+  const labels = analysis.problems.length ? analysis.problems : demoAnalysis.problems;
+  const severities = [
+    { severity: "Alto", tone: "red" as const },
+    { severity: "Medio", tone: "amber" as const },
+    { severity: "Medio", tone: "amber" as const },
+    { severity: "Bajo", tone: "blue" as const },
+  ];
+  return labels.slice(0, 4).map((label, index) => ({ label, ...severities[index] }));
+}
+
+function SectionTitle({ number, title }: { number: string; title: string }) {
+  return <h2 className="mt-6 mb-3 text-[20px] font-black">{number}. {title}</h2>;
+}
+
+function ProblemLine({ label, severity, tone }: { label: string; severity: string; tone: "red" | "amber" | "blue" }) {
+  const colors = {
+    red: "text-[#cf334b] bg-[#ffecef]",
+    amber: "text-[#b96b13] bg-[#fff3e3]",
+    blue: "text-[#0c66d8] bg-[#edf5ff]",
   };
   return (
-    <div className="mb-2 flex items-center gap-3 rounded-lg border border-[#e8edf4] px-3 py-3 last:mb-0">
-      {icon === "alert" ? <AlertTriangle className="h-6 w-6 text-[#cf334b]" /> : null}
-      {icon === "warning" ? <AlertTriangle className="h-6 w-6 text-[#d48624]" /> : null}
-      {icon === "info" ? <Info className="h-6 w-6 text-[#0c66d8]" /> : null}
-      <p className="flex-1 text-[14px] font-medium text-[#111632]">{label}</p>
-      <span className={`rounded-full px-3 py-1 text-[12px] font-black ${classes[tone]}`}>
-        {severity}
-      </span>
+    <div className="flex h-[54px] items-center gap-4 border-b border-[#edf0f5] px-5 last:border-b-0">
+      <AlertTriangle className={`h-6 w-6 ${tone === "red" ? "text-[#cf334b]" : tone === "amber" ? "text-[#d48624]" : "text-[#0c66d8]"}`} />
+      <span className="flex-1 text-[16px] font-medium">{label}</span>
+      <span className={`rounded-full px-4 py-1 text-[13px] font-black ${colors[tone]}`}>{severity}</span>
       <ChevronRight className="h-5 w-5 text-[#9ba4b2]" />
     </div>
   );
 }
 
-function StatusChip({
-  children,
-  ok,
-  warning,
-}: {
-  children: ReactNode;
-  ok?: boolean;
-  warning?: boolean;
-}) {
+function Chip({ children, ok, warn }: { children: ReactNode; ok?: boolean; warn?: boolean }) {
   return (
-    <span
-      className={`inline-flex items-center gap-2 rounded-full px-3 py-2 text-[13px] font-black ${
-        ok ? "bg-[#e9f9f0] text-[#15a45d]" : warning ? "bg-[#fff5e7] text-[#b96b13]" : ""
-      }`}
-    >
-      {ok ? <CheckCircle2 className="h-5 w-5" /> : null}
-      {warning ? <AlertTriangle className="h-5 w-5" /> : null}
+    <span className={`inline-flex h-[44px] items-center gap-2 rounded-full border px-5 text-[16px] font-medium shadow-[0_6px_14px_rgba(15,25,55,0.04)] ${ok ? "border-[#d7f2e5] bg-white text-[#15995a]" : warn ? "border-[#ffe2bd] bg-[#fff5e7] text-[#a86315]" : ""}`}>
+      {ok ? <CheckCircle2 className="h-5 w-5" /> : <AlertTriangle className="h-5 w-5" />}
       {children}
     </span>
   );
 }
 
-function RecommendationCard({
-  icon,
-  title,
-  children,
-}: {
-  icon: ReactNode;
-  title: string;
-  children: ReactNode;
-}) {
+function RecoCard({ children, icon, title }: { children: ReactNode; icon: ReactNode; title: string }) {
   return (
-    <div className="rounded-lg bg-[#f7fbff] p-3 shadow-[inset_0_0_0_1px_rgba(210,222,238,0.7)]">
-      <div className="grid h-11 w-11 place-items-center rounded-full bg-[#0068ff] text-white">
-        {icon}
-      </div>
-      <h3 className="mt-3 text-[13px] font-black leading-4">{title}</h3>
-      <p className="mt-2 text-[11px] font-medium leading-4 text-[#5f6673]">{children}</p>
-      <ChevronRight className="ml-auto mt-2 h-5 w-5 text-[#8a929f]" />
+    <div className="rounded-[11px] border border-[#e4e9f0] bg-white p-4 shadow-[0_8px_20px_rgba(15,25,55,0.05)]">
+      <div className="grid h-12 w-12 place-items-center rounded-full bg-[#edf5ff] text-[#0068ff]">{icon}</div>
+      <h3 className="mt-4 text-[16px] font-black leading-5">{title}</h3>
+      <p className="mt-2 text-[13px] font-medium leading-5 text-[#626a79]">{children}</p>
+      <ChevronRight className="ml-auto mt-2 h-5 w-5 text-[#9ba4b2]" />
     </div>
   );
 }
 
 function LockedPreview() {
   return (
-    <div className="relative grid h-40 grid-cols-[2fr_1fr] gap-3 overflow-hidden rounded-lg border border-[#e0e5ec] bg-white p-3">
-      <div className="rounded-lg bg-white p-4 blur-[3px]">
-        <p className="text-[18px] font-black">Juan Pérez García</p>
-        <p className="mt-2 h-2 w-40 rounded bg-[#dfe7f1]" />
-        <p className="mt-5 h-2 w-full rounded bg-[#dfe7f1]" />
-        <p className="mt-2 h-2 w-11/12 rounded bg-[#dfe7f1]" />
-        <p className="mt-5 h-2 w-full rounded bg-[#dfe7f1]" />
-        <p className="mt-2 h-2 w-9/12 rounded bg-[#dfe7f1]" />
+    <div className="relative grid h-[120px] grid-cols-[1fr_1fr] overflow-hidden rounded-[10px] border border-[#d9e4f1] bg-white">
+      <div className="p-5 text-[16px] font-medium leading-7 text-[#626a79]">
+        Esta es una vista previa de cómo se verá tu CV optimizado. Desbloquéalo para conocer todos los detalles y descargarlo.
       </div>
-      <div className="rounded-lg bg-[#f8fbff] p-3 blur-[3px]">
-        <p className="h-3 w-24 rounded bg-[#dfe7f1]" />
-        {[70, 88, 95, 74, 84].map((width) => (
-          <p key={width} className="mt-4 h-2 rounded bg-[#0068ff]" style={{ width: `${width}%` }} />
-        ))}
-      </div>
+      <MiniCvLocked />
       <div className="absolute inset-0 grid place-items-center">
         <div className="grid h-16 w-16 place-items-center rounded-full bg-white text-[#0068ff] shadow-[0_10px_28px_rgba(15,25,55,0.16)]">
           <Lock className="h-8 w-8" />
@@ -1096,165 +1134,50 @@ function LockedPreview() {
   );
 }
 
-function TrustItem({ icon, children }: { icon: ReactNode; children: ReactNode }) {
+function MiniCvLocked() {
   return (
-    <div className="flex flex-col items-center gap-2 px-1 text-[#5f6673]">
+    <div className="relative overflow-hidden rounded-[10px] bg-white p-5 blur-[1.8px]">
+      <div className="h-9 w-9 rounded-full bg-[#d6dbe3]" />
+      <div className="mt-3 h-3 w-32 rounded bg-[#cfd8e5]" />
+      <div className="mt-2 h-2 w-40 rounded bg-[#dbe2ec]" />
+      <div className="mt-6 space-y-2">
+        <span className="block h-2 w-full rounded bg-[#dbe2ec]" />
+        <span className="block h-2 w-10/12 rounded bg-[#dbe2ec]" />
+        <span className="block h-2 w-11/12 rounded bg-[#dbe2ec]" />
+      </div>
+    </div>
+  );
+}
+
+function TrustItem({ children, icon }: { children: ReactNode; icon: ReactNode }) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-2 px-2 text-[#626a79]">
       <span className="text-[#0068ff]">{icon}</span>
       <span>{children}</span>
     </div>
   );
 }
 
-function BeforeAfterPreview() {
+function FeatureLine({ children, icon }: { children: ReactNode; icon: ReactNode }) {
   return (
-    <div className="relative rounded-lg border border-[#e0e5ec] bg-white p-4 shadow-[0_8px_26px_rgba(15,25,55,0.06)]">
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <span className="rounded-full bg-[#eef2f7] px-3 py-2 text-[13px] font-black text-[#5f6673]">
-            Antes
-          </span>
-          <div className="mt-3 h-56 rounded-lg border border-[#e1e5ec] bg-white p-5 blur-[3px]">
-            <div className="mb-5 h-12 w-12 rounded-full bg-[#d1d7df]" />
-            <p className="h-3 w-28 rounded bg-[#d8e0ea]" />
-            <p className="mt-2 h-2 w-36 rounded bg-[#d8e0ea]" />
-            {Array.from({ length: 8 }).map((_, index) => (
-              <p key={index} className="mt-4 h-2 rounded bg-[#d8e0ea]" />
-            ))}
-          </div>
-        </div>
-        <div>
-          <span className="rounded-full bg-[#edf5ff] px-3 py-2 text-[13px] font-black text-[#0c66d8]">
-            Después
-          </span>
-          <div className="mt-3 h-56 overflow-hidden rounded-lg border border-[#dce5f0] bg-white p-4">
-            <h3 className="text-[16px] font-black">María López</h3>
-            <p className="text-[10px] font-black text-[#0c66d8]">Diseñadora UX/UI</p>
-            <p className="mt-3 text-[8px] font-medium">CDMX, México · maria@email.com · 55 1234 5678</p>
-            <h4 className="mt-4 text-[10px] font-black text-[#0c66d8]">Perfil profesional</h4>
-            <p className="mt-1 text-[9px] leading-4">{demoAnalysis.improvedCV.summary}</p>
-            <h4 className="mt-3 text-[10px] font-black text-[#0c66d8]">Experiencia laboral</h4>
-            <p className="mt-1 text-[9px] font-black">Diseñadora UX/UI Senior</p>
-            <ul className="mt-1 list-disc pl-4 text-[8px] leading-4">
-              {demoAnalysis.improvedCV.experience[0].bullets.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
-            <h4 className="mt-2 text-[10px] font-black text-[#0c66d8]">Educación</h4>
-            <p className="text-[8px] leading-4">Licenciatura en Diseño Gráfico · 2016 - 2020</p>
-          </div>
-        </div>
-      </div>
-      <div className="absolute left-1/2 top-1/2 grid h-16 w-16 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-white text-[#0068ff] shadow-[0_10px_28px_rgba(15,25,55,0.18)]">
-        <Lock className="h-8 w-8" />
-      </div>
+    <div className="mt-4 flex items-center gap-6 border-b border-[#edf0f5] pb-4 last:border-b-0">
+      <div className="grid h-12 w-12 place-items-center rounded-[10px] bg-[#edf5ff] text-[#0068ff]">{icon}</div>
+      <span className="text-[20px] font-medium">{children}</span>
     </div>
   );
 }
 
-function BenefitIcon({ icon, children }: { icon: ReactNode; children: ReactNode }) {
-  return (
-    <div className="text-center">
-      <div className="mx-auto text-[#0068ff]">{icon}</div>
-      <p className="mt-2 text-[12px] font-medium leading-4 text-[#070b2f]">{children}</p>
-    </div>
-  );
-}
-
-function InputLike({
-  icon,
-  children,
-  subtext,
-}: {
-  icon: ReactNode;
-  children: ReactNode;
-  subtext?: string;
-}) {
-  return (
-    <div className="flex min-h-16 items-center gap-4 rounded-lg border border-[#d6dce5] bg-white px-4">
-      <span className="text-[#0c66d8]">{icon}</span>
-      <div>
-        <p className="text-[16px] font-medium text-[#5f6673]">{children}</p>
-        {subtext ? <p className="mt-1 text-[12px] font-medium text-[#7d8795]">{subtext}</p> : null}
-      </div>
-    </div>
-  );
-}
-
-function MiniGuarantee({
-  icon,
-  title,
-  children,
-}: {
-  icon: ReactNode;
-  title: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className="px-2 text-center">
-      <div className="mx-auto text-[#0068ff]">{icon}</div>
-      <h3 className="mt-2 text-[13px] font-black">{title}</h3>
-      <p className="mt-1 text-[11px] font-medium leading-4 text-[#5f6673]">{children}</p>
-    </div>
-  );
-}
-
-function ImprovedCard({
-  icon,
-  title,
-  children,
-  tone = "blue",
-}: {
-  icon: ReactNode;
-  title: string;
-  children: ReactNode;
-  tone?: "blue" | "green" | "purple";
-}) {
-  const toneClass = {
+function ImprovedCard({ children, icon, title, tone = "blue" }: { children: ReactNode; icon: ReactNode; title: string; tone?: "blue" | "green" | "purple" }) {
+  const colors = {
     blue: "bg-[#edf5ff] text-[#0068ff]",
-    green: "bg-[#e9f9f0] text-[#15a45d]",
-    purple: "bg-[#f1eaff] text-[#8d4de8]",
+    green: "bg-[#e9f9f0] text-[#18b965]",
+    purple: "bg-[#f1e9ff] text-[#9b47f0]",
   };
   return (
-    <div className="rounded-lg border border-[#e6ebf2] bg-white p-4 text-center shadow-[0_8px_22px_rgba(15,25,55,0.05)]">
-      <div className={`mx-auto grid h-14 w-14 place-items-center rounded-full ${toneClass[tone]}`}>
-        {icon}
-      </div>
-      <h3 className="mt-4 text-[15px] font-black leading-5">{title}</h3>
-      <p className="mt-2 text-[12px] font-medium leading-5 text-[#5f6673]">{children}</p>
+    <div className="rounded-[14px] border border-[#e4e9f0] bg-white p-5 text-center shadow-[0_8px_20px_rgba(15,25,55,0.05)]">
+      <div className={`mx-auto grid h-16 w-16 place-items-center rounded-full ${colors[tone]}`}>{icon}</div>
+      <h3 className="mt-5 text-[17px] font-black leading-5">{title}</h3>
+      <p className="mt-3 text-[14px] font-medium leading-6 text-[#626a79]">{children}</p>
     </div>
-  );
-}
-
-function TinyProblem({
-  text,
-  count,
-  tone,
-}: {
-  text: string;
-  count: string;
-  tone: "red" | "amber" | "blue";
-}) {
-  const color = {
-    red: "text-[#cf334b] bg-[#ffecef]",
-    amber: "text-[#b96b13] bg-[#fff3e3]",
-    blue: "text-[#0c66d8] bg-[#edf5ff]",
-  };
-  return (
-    <div className="mt-3 flex items-center gap-2 text-[11px] font-medium text-[#111632]">
-      {tone === "red" ? <AlertTriangle className="h-4 w-4 text-[#cf334b]" /> : null}
-      {tone === "amber" ? <AlertTriangle className="h-4 w-4 text-[#d48624]" /> : null}
-      {tone === "blue" ? <Info className="h-4 w-4 text-[#0c66d8]" /> : null}
-      <span className="flex-1">{text}</span>
-      <span className={`rounded-full px-2 py-1 text-[10px] font-black ${color[tone]}`}>{count}</span>
-    </div>
-  );
-}
-
-function MiniPill({ icon, children }: { icon: ReactNode; children: ReactNode }) {
-  return (
-    <span className="inline-flex items-center gap-2 rounded-full bg-[#edf5ff] px-3 py-2 text-[11px] font-black text-[#0c55b8]">
-      {icon}
-      {children}
-    </span>
   );
 }
