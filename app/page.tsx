@@ -1515,16 +1515,18 @@ function wait(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
-function compactFileName(name: string, maxLength = 34) {
+function compactFileName(name: string, maxLength = 28) {
   if (name.length <= maxLength) return name;
 
   const lastDot = name.lastIndexOf(".");
   const hasExtension = lastDot > 0 && lastDot < name.length - 1;
-  const extension = hasExtension ? name.slice(lastDot + 1) : "";
+  const extension = hasExtension ? name.slice(lastDot) : "";
   const baseName = hasExtension ? name.slice(0, lastDot) : name;
-  const availableBase = Math.max(10, maxLength - extension.length - 3);
 
-  return `${baseName.slice(0, availableBase)}...${extension}`;
+  const startLength = 18;
+  const endLength = Math.max(6, maxLength - startLength - extension.length - 3);
+
+  return `${baseName.slice(0, startLength)}...${baseName.slice(-endLength)}${extension}`;
 }
 
 function LandingScreen({ onGo, hasRealAnalysis }: { onGo: (screen: Screen) => void; hasRealAnalysis: boolean }) {
@@ -1641,13 +1643,13 @@ function UploadScreen({
             >
               <input ref={fileInputRef} type="file" accept="application/pdf" className="sr-only" onChange={onFileChange} />
               <button className="absolute inset-0 cursor-pointer" aria-label="Seleccionar PDF" onClick={() => fileInputRef.current?.click()} type="button" />
-              <div>
+              <div className="w-full max-w-full min-w-0 overflow-hidden flex flex-col items-center">
                 <div className="mx-auto grid h-[70px] w-[70px] place-items-center rounded-full bg-[#edf5ff] text-[#0068ff]">
                   <FileText className="h-9 w-9" />
                 </div>
                 <h2
-                  className="mx-auto mt-5 max-w-full overflow-hidden text-ellipsis whitespace-nowrap px-1 text-[20px] font-black tracking-[-0.02em]"
-                  title={file?.name}
+                  className="mx-auto mt-5 block w-full max-w-[260px] min-[390px]:max-w-[80%] overflow-hidden text-ellipsis whitespace-nowrap px-1 text-[20px] font-black tracking-[-0.02em] break-normal text-center"
+                  title={file ? file.name : undefined}
                 >
                   {file ? compactFileName(file.name) : <>Arrastra o <span className="text-[#0068ff]">selecciona</span> tu CV</>}
                 </h2>
@@ -1720,8 +1722,11 @@ function AnalyzingScreen({
       <section className="px-5 pt-5">
         <div className="flex items-center gap-3 rounded-[14px] border border-[#e4e9f0] bg-white p-4 shadow-[0_10px_26px_rgba(15,25,55,0.06)]">
           <PdfIcon />
-          <div className="min-w-0 flex-1 text-left">
-            <p className="max-w-full truncate text-[19px] font-black" title={fileName}>
+          <div className="min-w-0 flex-1 text-left overflow-hidden">
+            <p
+              className="block w-full max-w-[210px] min-[390px]:max-w-[240px] overflow-hidden text-ellipsis whitespace-nowrap text-[19px] font-black break-normal"
+              title={fileName}
+            >
               {compactFileName(fileName)}
             </p>
             <p className="mt-1 text-[14px] font-medium text-[#626a79]">{getFileInfo()}</p>
@@ -1754,6 +1759,53 @@ function AnalyzingScreen({
   );
 }
 
+function getRecoIcon(index: number, text: string) {
+  const lowercase = text.toLowerCase();
+  if (lowercase.includes("resumen") || lowercase.includes("perfil")) {
+    return <UserRound className="h-7 w-7" />;
+  }
+  if (lowercase.includes("logro") || lowercase.includes("métrica") || lowercase.includes("cuantific")) {
+    return <BarChart3 className="h-7 w-7" />;
+  }
+  if (lowercase.includes("palabra") || lowercase.includes("keyword") || lowercase.includes("clave") || lowercase.includes("habili") || lowercase.includes("tecnol")) {
+    return <Search className="h-7 w-7" />;
+  }
+  if (lowercase.includes("formato") || lowercase.includes("diseño") || lowercase.includes("estructur") || lowercase.includes("lectur")) {
+    return <Layers3 className="h-7 w-7" />;
+  }
+  
+  if (index === 0) return <UserRound className="h-7 w-7" />;
+  if (index === 1) return <BarChart3 className="h-7 w-7" />;
+  return <Search className="h-7 w-7" />;
+}
+
+function parseRecommendation(reco: string, index: number) {
+  const parts = reco.split(":");
+  if (parts.length > 1) {
+    return {
+      title: parts[0].trim(),
+      desc: parts.slice(1).join(":").trim()
+    };
+  }
+  const text = reco.trim();
+  const lowercase = text.toLowerCase();
+  let title = "Recomendación";
+  if (lowercase.includes("resumen") || lowercase.includes("perfil")) {
+    title = "Mejora el resumen";
+  } else if (lowercase.includes("logro") || lowercase.includes("métrica") || lowercase.includes("cuantific")) {
+    title = "Refuerza logros";
+  } else if (lowercase.includes("palabra") || lowercase.includes("keyword") || lowercase.includes("clave") || lowercase.includes("habili")) {
+    title = "Optimiza palabras clave";
+  } else if (lowercase.includes("formato") || lowercase.includes("diseño") || lowercase.includes("estructur") || lowercase.includes("lectur")) {
+    title = "Estructura y formato";
+  } else {
+    if (index === 0) title = "Optimización de perfil";
+    else if (index === 1) title = "Claridad y enfoque";
+    else title = "Relevancia profesional";
+  }
+  return { title, desc: text };
+}
+
 function DiagnosisScreen({
   analysis,
   note,
@@ -1765,6 +1817,37 @@ function DiagnosisScreen({
   onBack: () => void;
   onUnlock: () => void;
 }) {
+  const score = analysis.score || 0;
+  let scoreTitle = "Tu CV requiere una mejora profunda";
+  if (score >= 90) {
+    scoreTitle = "Tu CV tiene una base muy sólida";
+  } else if (score >= 75) {
+    scoreTitle = "Buen potencial, con mejoras importantes";
+  } else if (score >= 60) {
+    scoreTitle = "Tu CV necesita ajustes clave";
+  }
+
+  const getSubtitleText = (status: string, msg: string) => {
+    let statusDesc = "Tu CV tiene una base sólida.";
+    if (status === "green") {
+      statusDesc = "¡Excelente! Tu CV cuenta con una calidad sobresaliente.";
+    } else if (status === "red") {
+      statusDesc = "Atención: detectamos múltiples problemas críticos de lectura y formato.";
+    } else if (status === "yellow") {
+      statusDesc = "Buen potencial. Con algunos ajustes clave, puedes aumentar considerablemente su impacto.";
+    }
+    return `${statusDesc} ${msg || ""}`.trim();
+  };
+
+  const hasExp = Boolean(analysis.improvedCV?.experience && analysis.improvedCV.experience.length > 0);
+  const hasEdu = Boolean(analysis.improvedCV?.education && analysis.improvedCV.education.length > 0);
+  const hasSkills = Boolean(analysis.improvedCV?.skills && analysis.improvedCV.skills.length > 0);
+  const hasProj = Boolean(analysis.improvedCV?.projects && analysis.improvedCV.projects.length > 0);
+  const hasCert = Boolean(analysis.improvedCV?.certifications && analysis.improvedCV.certifications.length > 0);
+
+  const allowDownload = analysis.deliveryDecision?.allowDownload !== false;
+  const userMessage = analysis.deliveryDecision?.userMessage || "Tu CV ha sido analizado con éxito.";
+
   return (
     <ScreenShell>
       <BackHeader onBack={onBack} />
@@ -1776,42 +1859,108 @@ function DiagnosisScreen({
 
       <section className="px-5 pt-4 pb-5">
         <div className="grid grid-cols-1 items-center gap-4 rounded-[15px] border border-[#e4e9f0] bg-white p-4 text-center shadow-[0_10px_26px_rgba(15,25,55,0.06)]">
-          <ProgressRing value={analysis.score || 78} mode="score" size={116} />
+          <ProgressRing value={score} mode="score" size={116} />
           <div className="border-t border-[#e8edf4] pt-4 text-left">
-            <h2 className="text-[21px] font-black leading-tight">Buen potencial, pero hay áreas a mejorar.</h2>
-            <p className="mt-3 text-[15px] font-medium leading-6 text-[#626a79]">Tu CV tiene una base sólida. Con algunos ajustes, puedes aumentar su claridad, relevancia e impacto.</p>
+            <h2 className="text-[21px] font-black leading-tight">{scoreTitle}</h2>
+            <p className="mt-3 text-[15px] font-medium leading-6 text-[#626a79]">
+              {getSubtitleText(analysis.qualityStatus, userMessage)}
+            </p>
           </div>
         </div>
 
         {note ? <p className="mt-4 rounded-[12px] bg-[#fff7e9] px-4 py-3 text-[14px] font-bold leading-6 text-[#935a12]">{note}</p> : null}
 
         <SectionTitle number="1" title="Problemas detectados" />
-        <div className="rounded-[15px] border border-[#e4e9f0] bg-white shadow-[0_8px_22px_rgba(15,25,55,0.05)]">
-          {problemRows(analysis).map((item) => <ProblemLine key={item.label} {...item} />)}
-        </div>
+        {(!analysis.problems || analysis.problems.length === 0) ? (
+          <div className="rounded-[15px] border border-[#e4e9f0] bg-white p-5 text-center shadow-[0_8px_22px_rgba(15,25,55,0.05)]">
+            <p className="text-[15px] font-medium text-[#129853]">No detectamos problemas críticos, solo oportunidades de mejora.</p>
+          </div>
+        ) : (
+          <div className="rounded-[15px] border border-[#e4e9f0] bg-white shadow-[0_8px_22px_rgba(15,25,55,0.05)]">
+            {problemRows(analysis).map((item) => <ProblemLine key={item.label} {...item} />)}
+          </div>
+        )}
 
         <SectionTitle number="2" title="Secciones detectadas" />
-        <div className="flex flex-wrap gap-3">
-          <Chip ok>Experiencia</Chip>
-          <Chip ok>Educación</Chip>
-          <Chip ok>Habilidades</Chip>
-          <Chip warn>Falta: {analysis.missingSections[0] || "Resumen"}</Chip>
+        <div className="flex flex-wrap gap-2.5">
+          {hasExp && <Chip ok>Experiencia</Chip>}
+          {hasEdu && <Chip ok>Educación</Chip>}
+          {hasSkills && <Chip ok>Habilidades</Chip>}
+          {hasProj && <Chip ok>Proyectos</Chip>}
+          {hasCert && <Chip ok>Certificaciones</Chip>}
+          {analysis.missingSections && analysis.missingSections.map((section) => (
+            <Chip key={section} warn>Falta: {section}</Chip>
+          ))}
+          {!hasExp && !hasEdu && !hasSkills && !hasProj && !hasCert && (!analysis.missingSections || analysis.missingSections.length === 0) && (
+            <span className="text-[14px] text-[#626a79] font-medium">Ninguna sección detectada de forma clara.</span>
+          )}
         </div>
 
         <SectionTitle number="3" title="Recomendaciones clave" />
-        <div className="grid grid-cols-1 gap-2.5">
-          <RecoCard icon={<UserRound className="h-7 w-7" />} title="Mejora el resumen">Añade un resumen profesional claro que comunique tu valor.</RecoCard>
-          <RecoCard icon={<BarChart3 className="h-7 w-7" />} title="Refuerza logros">Cuantifica resultados para demostrar el impacto de tu trabajo.</RecoCard>
-          <RecoCard icon={<Search className="h-7 w-7" />} title="Optimiza palabras clave">Incluye términos relevantes para destacar.</RecoCard>
-        </div>
+        {(!analysis.recommendations || analysis.recommendations.length === 0) ? (
+          <div className="rounded-[15px] border border-[#e4e9f0] bg-white p-5 text-center shadow-[0_8px_22px_rgba(15,25,55,0.05)]">
+            <p className="text-[15px] font-medium text-[#626a79]">
+              Tu CV ya tiene una presentación clara. Revisa la versión mejorada antes de descargar.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-2.5">
+            {analysis.recommendations.map((reco, index) => {
+              const { title, desc } = parseRecommendation(reco, index);
+              const icon = getRecoIcon(index, reco);
+              return (
+                <RecoCard key={index} icon={icon} title={title}>
+                  {desc}
+                </RecoCard>
+              );
+            })}
+          </div>
+        )}
+
+        {analysis.extractionWarnings && analysis.extractionWarnings.length > 0 && (
+          <div className="mt-5 rounded-[12px] border border-[#ffe2bd] bg-[#fffaf4] p-4 text-left">
+            <h3 className="flex items-center gap-2 text-[15px] font-black text-[#a86315]">
+              <AlertTriangle className="h-5 w-5 shrink-0 text-[#d48624]" />
+              Advertencias de lectura
+            </h3>
+            <ul className="mt-2 list-disc list-inside space-y-1 text-[13px] font-medium leading-5 text-[#73400a]">
+              {analysis.extractionWarnings.map((warn, i) => (
+                <li key={i}>{warn}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {analysis.dataIntegrityWarnings && analysis.dataIntegrityWarnings.length > 0 && (
+          <div className="mt-4 rounded-[12px] border border-[#e4e9f0] bg-[#f8fafc] p-4 text-left">
+            <h3 className="flex items-center gap-2 text-[15px] font-black text-[#475569]">
+              <ShieldCheck className="h-5 w-5 shrink-0 text-[#64748b]" />
+              Datos que debes revisar
+            </h3>
+            <ul className="mt-2 list-disc list-inside space-y-1 text-[13px] font-medium leading-5 text-[#475569]">
+              {analysis.dataIntegrityWarnings.map((warn, i) => (
+                <li key={i}>{warn}</li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         <SectionTitle number="4" title="Versión mejorada" />
-        <LockedPreview />
+        <LockedPreview cv={analysis.improvedCV} />
 
-        <button className="mt-4 flex h-[52px] w-full items-center justify-center gap-3 rounded-[8px] bg-[#0068ff] text-[18px] font-black text-white shadow-[0_10px_22px_rgba(0,104,255,0.22)] transition duration-200 hover:-translate-y-0.5 active:scale-[0.98]" onClick={onUnlock}>
-          <Lock className="h-7 w-7" />
+        <button
+          disabled={!allowDownload}
+          className="mt-6 flex h-[54px] w-full items-center justify-center gap-3 rounded-[11px] bg-[#0068ff] text-[18px] font-black text-white shadow-[0_12px_24px_rgba(0,104,255,0.24)] transition duration-200 hover:-translate-y-0.5 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-[#9fc7ff] disabled:shadow-none"
+          onClick={onUnlock}
+        >
+          <Lock className="h-6 w-6" />
           Desbloquear mi CV mejorado
         </button>
+        {!allowDownload ? (
+          <p className="mt-3 rounded-[12px] bg-[#fff7e9] px-4 py-3 text-[14px] font-bold leading-6 text-[#935a12] text-center">
+            {userMessage}
+          </p>
+        ) : null}
 
         <div className="mt-4 grid grid-cols-1 divide-y divide-[#e2e8f0] rounded-[13px] border border-[#e7edf5] bg-white text-center text-[13px] font-medium text-[#626a79]">
           <TrustItem icon={<FileDown className="h-7 w-7" />}>Pago único</TrustItem>
@@ -1826,14 +1975,7 @@ function DiagnosisScreen({
 function PaywallScreen({ onBack, onUnlock }: { onBack: () => void; onUnlock: () => void }) {
   return (
     <ScreenShell>
-      <div className="px-5 pt-6">
-        <button aria-label="Volver" className="mb-3 text-[#070b2f]" onClick={onBack}>
-          <ArrowLeft className="h-9 w-9" />
-        </button>
-        <div className="flex justify-center">
-          <BrandLogo large />
-        </div>
-      </div>
+      <BackHeader onBack={onBack} />
       <section className="px-5 pt-5 text-center">
         <h1 className="text-[34px] font-black leading-[1.04] tracking-[-0.035em] min-[390px]:text-[37px]">
           Desbloquea tu
@@ -1986,13 +2128,75 @@ function BackHeader({ onBack }: { onBack: () => void }) {
   );
 }
 
+function BrandLogoIcon({ className = "h-8 w-8" }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 100 100"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+    >
+      {/* Main document body outline */}
+      <path
+        d="M 58 15 H 32 C 22.6 15 15 22.6 15 32 V 68 C 15 77.4 22.6 85 32 85 H 50"
+        stroke="#0068ff"
+        strokeWidth="9.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      {/* Right edge below fold */}
+      <path
+        d="M 80 37 V 50"
+        stroke="#0068ff"
+        strokeWidth="9.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      {/* Curved Arrow inside the bottom-right gap */}
+      <path
+        d="M 50 85 C 65 85 80 75 80 56"
+        stroke="#0068ff"
+        strokeWidth="9.5"
+        strokeLinecap="round"
+      />
+      {/* Arrowhead */}
+      <path
+        d="M 64 56 H 80 V 72"
+        stroke="#0068ff"
+        strokeWidth="9.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      {/* Fold flap in the top-right corner with smooth curve */}
+      <path
+        d="M 58 15 L 80 37 H 64 C 60.7 37 58 34.3 58 31 Z"
+        fill="#7caeff"
+      />
+      {/* Horizontal lines representing document content */}
+      <path
+        d="M 30 42 H 58"
+        stroke="#7caeff"
+        strokeWidth="8.5"
+        strokeLinecap="round"
+      />
+      <path
+        d="M 30 58 H 48"
+        stroke="#7caeff"
+        strokeWidth="8.5"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 function BrandLogo({ large = false }: { large?: boolean }) {
   const [imgError, setImgError] = useState(false);
 
   if (imgError) {
     return (
-      <div className="flex items-center gap-2 select-none py-1">
-        <span className={`font-black tracking-tight text-[#070b2f] ${large ? "text-[26px]" : "text-[20px]"}`}>
+      <div className="flex items-center gap-2 select-none py-1 text-left justify-start">
+        <BrandLogoIcon className={large ? "h-10 w-10" : "h-8 w-8"} />
+        <span className={`font-black tracking-[-0.035em] text-[#070b2f] ${large ? "text-[26px]" : "text-[20px]"}`}>
           Blank<span className="text-[#0068ff]">ATS</span>
         </span>
       </div>
@@ -2000,12 +2204,9 @@ function BrandLogo({ large = false }: { large?: boolean }) {
   }
 
   return (
-    <Image
+    <img
       src="/blankats-wordmark.png"
       alt="BlankATS"
-      width={640}
-      height={190}
-      priority
       onError={() => setImgError(true)}
       className={`${large ? "h-[50px] min-[390px]:h-[56px]" : "h-[36px] min-[390px]:h-[40px]"} w-auto max-w-full object-contain`}
     />
@@ -2168,14 +2369,17 @@ function EvalCard({ children, icon, title }: { children: ReactNode; icon: ReactN
 }
 
 function problemRows(analysis: AnalysisResponse) {
-  const labels = analysis.problems.length ? analysis.problems : demoAnalysis.problems;
+  const labels = analysis?.problems || [];
   const severities = [
     { severity: "Alto", tone: "red" as const },
     { severity: "Medio", tone: "amber" as const },
     { severity: "Medio", tone: "amber" as const },
     { severity: "Bajo", tone: "blue" as const },
   ];
-  return labels.slice(0, 4).map((label, index) => ({ label, ...severities[index] }));
+  return labels.map((label, index) => {
+    const sev = severities[index] || { severity: "Bajo", tone: "blue" as const };
+    return { label, ...sev };
+  });
 }
 
 function SectionTitle({ number, title }: { number: string; title: string }) {
@@ -2218,16 +2422,58 @@ function RecoCard({ children, icon, title }: { children: ReactNode; icon: ReactN
   );
 }
 
-function LockedPreview() {
+function LockedPreview({ cv }: { cv: ImprovedCV }) {
+  const firstExp = cv?.experience && cv.experience[0];
   return (
-    <div className="relative grid min-h-[168px] grid-cols-1 overflow-hidden rounded-[10px] border border-[#d9e4f1] bg-white">
-      <div className="p-4 pb-1 text-[14px] font-medium leading-6 text-[#626a79]">
-        Esta es una vista previa de cómo se verá tu CV optimizado. Desbloquéalo para conocer todos los detalles y descargarlo.
+    <div className="relative grid grid-cols-1 overflow-hidden rounded-[15px] border border-[#d9e4f1] bg-white shadow-[0_10px_26px_rgba(15,25,55,0.06)]">
+      <div className="p-4 pb-3 text-[14px] font-medium leading-6 text-[#626a79] border-b border-[#f1f5f9]">
+        Esta es una vista previa de tu CV optimizado. Desbloquea la versión completa para conocer todos los detalles y descargarla.
       </div>
-      <MiniCvLocked />
-      <div className="absolute inset-0 grid place-items-center">
-        <div className="grid h-14 w-14 place-items-center rounded-full bg-white text-[#0068ff] shadow-[0_10px_28px_rgba(15,25,55,0.16)]">
-          <Lock className="h-7 w-7" />
+      
+      {/* Partially Blurred Real CV Content */}
+      <div className="relative select-none p-5 text-left blur-[2px] opacity-75">
+        <div className="flex items-center gap-4">
+          <div className="h-12 w-12 rounded-full bg-[#edf5ff] flex items-center justify-center font-black text-[#0068ff] text-lg shrink-0">
+            {cv?.name ? cv.name.charAt(0).toUpperCase() : "U"}
+          </div>
+          <div>
+            <h3 className="text-[18px] font-black text-[#070b2f]">{cv?.name || "Tu Nombre"}</h3>
+            <p className="text-[13px] font-medium text-[#0068ff] mt-0.5">{cv?.title || "Tu Título Profesional"}</p>
+          </div>
+        </div>
+        
+        <p className="mt-3 text-[11px] font-medium text-[#8a929f]">{cv?.contact || "contacto@email.com · Teléfono"}</p>
+        
+        <div className="mt-4 border-t border-[#f1f5f9] pt-4">
+          <h4 className="text-[13px] font-black text-[#070b2f] uppercase tracking-wider">Resumen Profesional</h4>
+          <p className="mt-2 text-[12px] leading-relaxed text-[#626a79] font-medium">
+            {cv?.summary || "Resumen profesional redactado con enfoque de impacto..."}
+          </p>
+        </div>
+
+        {firstExp && (
+          <div className="mt-4 border-t border-[#f1f5f9] pt-4">
+            <h4 className="text-[13px] font-black text-[#070b2f] uppercase tracking-wider">Experiencia Profesional</h4>
+            <div className="mt-2">
+              <div className="flex justify-between items-baseline">
+                <h5 className="text-[13px] font-black text-[#070b2f]">{firstExp.role}</h5>
+                <span className="text-[11px] font-medium text-[#8a929f]">{firstExp.period}</span>
+              </div>
+              <p className="text-[12px] font-bold text-[#0068ff] mt-0.5">{firstExp.company}</p>
+              <ul className="mt-2 space-y-1.5 pl-4 list-disc text-[12px] leading-relaxed text-[#626a79] font-medium">
+                {firstExp.bullets && firstExp.bullets.slice(0, 2).map((bullet, idx) => (
+                  <li key={idx}>{bullet}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        )}
+      </div>
+      
+      {/* Centered Lock Icon */}
+      <div className="absolute inset-0 bg-white/10 backdrop-blur-[1px] flex items-center justify-center">
+        <div className="grid h-16 w-16 place-items-center rounded-full bg-white text-[#0068ff] shadow-[0_12px_32px_rgba(0,104,255,0.22)] border border-[#e2e8f0]">
+          <Lock className="h-8 w-8" />
         </div>
       </div>
     </div>
