@@ -17,6 +17,7 @@ html {
   min-height: 100%;
   scroll-behavior: smooth;
   background: #f8fafc;
+  overflow-x: hidden;
 }
 
 body {
@@ -28,6 +29,7 @@ body {
   text-rendering: geometricPrecision;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
 }
 
 button,

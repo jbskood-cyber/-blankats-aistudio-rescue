@@ -2,22 +2,33 @@
 
 import Image from "next/image";
 import type { ChangeEvent, DragEvent, ReactNode } from "react";
-import { useMemo, useState } from "react";
-import { AnimatePresence, motion } from "motion/react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { motion } from "motion/react";
 import {
-  AlertCircle,
+  AlertTriangle,
+  ArrowLeft,
   ArrowRight,
+  BarChart3,
+  Check,
   CheckCircle2,
+  ChevronRight,
+  Circle,
+  Clock3,
+  CloudUpload,
   Download,
+  FileDown,
   FileText,
-  FileUp,
-  Loader2,
-  RefreshCw,
-  ShieldAlert,
+  Home,
+  Layers3,
+  Lock,
+  PenLine,
+  Search,
   ShieldCheck,
   Sparkles,
-  TextCursorInput,
-  XCircle,
+  Star,
+  Trophy,
+  Upload,
+  UserRound,
 } from "lucide-react";
 
 type QualityStatus = "green" | "yellow" | "red";
@@ -76,57 +87,71 @@ interface AnalysisResponse {
   };
 }
 
-const loadingSteps = [
-  "Extrayendo contenido original",
-  "Validando calidad de lectura",
-  "Evaluando estructura y datos",
-  "Preparando diagnostico",
-  "Construyendo la version mejorada",
-];
-
-const safeHighlights = [
-  "Estructura mas clara",
-  "Revision de integridad",
-  "Lista para revisar",
-];
-
-const statusCopy: Record<
-  QualityStatus,
-  { title: string; tone: string; icon: ReactNode; label: string }
-> = {
-  green: {
-    title: "Analisis confiable",
-    label: "Verde",
-    tone: "border-emerald-200 bg-emerald-50 text-emerald-800",
-    icon: <CheckCircle2 className="h-4 w-4" />,
-  },
-  yellow: {
-    title: "Revisar antes de usar",
-    label: "Amarillo",
-    tone: "border-amber-200 bg-amber-50 text-amber-900",
-    icon: <ShieldAlert className="h-4 w-4" />,
-  },
-  red: {
-    title: "Entrada insuficiente",
-    label: "Rojo",
-    tone: "border-rose-200 bg-rose-50 text-rose-800",
-    icon: <XCircle className="h-4 w-4" />,
-  },
-};
-
-const processingModeLabel: Record<ProcessingMode, string> = {
-  PRESERVE_AND_POLISH: "Conservar y pulir",
-  RESTRUCTURE_AND_IMPROVE: "Reestructurar y mejorar",
-  REVIEW_REQUIRED: "Revision requerida",
-};
-
-const recommendedActionLabel: Record<RecommendedAction, string> = {
-  download_ready: "Descarga lista",
-  review_before_download: "Revisar antes de descargar",
-  request_better_input: "Pedir mejor entrada",
-};
-
+type Screen = "home" | "upload" | "analyzing" | "diagnosis" | "paywall" | "success";
+type InputMode = "pdf" | "text";
 type RawRecord = Record<string, unknown>;
+
+const demoAnalysis: AnalysisResponse = {
+  score: 78,
+  qualityStatus: "yellow",
+  processingMode: "RESTRUCTURE_AND_IMPROVE",
+  recommendedAction: "review_before_download",
+  extractionWarnings: ["Algunas secciones requieren revisión visual antes de descarga."],
+  dataIntegrityWarnings: ["No se agregaron datos que no estuvieran presentes en el CV original."],
+  problems: [
+    "Faltan palabras clave relevantes",
+    "Formato poco consistente",
+    "Resumen profesional ausente",
+    "Poca cuantificación de logros",
+  ],
+  missingSections: ["Resumen"],
+  recommendations: [
+    "Mejora el resumen",
+    "Refuerza logros",
+    "Optimiza palabras clave",
+  ],
+  improvedCV: {
+    name: "Natalia Ruiz Castellanos",
+    title: "Diseñadora UX/UI",
+    contact: "CDMX, México · natalia@email.com · 55 1234 5678",
+    summary:
+      "Diseñadora UX/UI enfocada en crear experiencias digitales claras, intuitivas y centradas en resultados.",
+    experience: [
+      {
+        company: "Empresa Digital",
+        role: "Diseñadora UX/UI Senior",
+        period: "2021 - Actualidad",
+        bullets: [
+          "Diseñó interfaces centradas en el usuario que mejoraron la conversión en 25%.",
+          "Colaboró con equipos de producto y desarrollo para entregar soluciones claras y medibles.",
+        ],
+      },
+    ],
+    education: [
+      {
+        institution: "Universidad Nacional Autónoma de México",
+        degree: "Licenciatura en Diseño Gráfico",
+        period: "2016 - 2020",
+      },
+    ],
+    skills: ["Research", "Diseño UI", "Figma", "Prototipado", "Sistemas visuales"],
+    projects: [
+      {
+        name: "Rediseño de onboarding",
+        period: "2024",
+        bullets: ["Simplificó la lectura del perfil y mejoró el flujo de postulación."],
+      },
+    ],
+  },
+  deliveryDecision: {
+    allowDownload: true,
+    showWarningBeforeDownload: true,
+    userMessage:
+      "Revisa la vista previa antes de descargar para confirmar que refleja tu experiencia real.",
+  },
+};
+
+const blue = "#0068ff";
 
 function asRecord(value: unknown): RawRecord {
   return value && typeof value === "object" ? (value as RawRecord) : {};
@@ -139,30 +164,25 @@ function sanitizeImprovedCV(cv: unknown): ImprovedCV {
     let text = String(value ?? "").trim();
     text = text.replace(/\[[^\]]*\]/g, "");
     text = text.replace(/pendiente/gi, "");
+    text = text.replace(/agregar aquí/gi, "");
     text = text.replace(/agregar aqui/gi, "");
     text = text.replace(/\bn\/a\b/gi, "");
     text = text.replace(/placeholder/gi, "");
     return text.replace(/\s+/g, " ").trim();
   };
 
-  const sanitizeBullets = (
-    bullets: unknown,
-    descriptionFallback?: string,
-  ): string[] => {
+  const sanitizeBullets = (bullets: unknown, descriptionFallback?: string): string[] => {
     let rawList: string[] = [];
 
     if (Array.isArray(bullets) && bullets.length > 0) {
       rawList = bullets.map((bullet) => String(bullet));
     } else if (descriptionFallback) {
-      rawList = descriptionFallback
-        .replace(/\.-/g, "\n")
-        .replace(/\s[-*]\s/g, "\n")
-        .split("\n");
+      rawList = descriptionFallback.replace(/\.-/g, "\n").replace(/\s[-*]\s/g, "\n").split("\n");
     }
 
     return rawList
       .map((line) => cleanText(line).replace(/^[-*]\s?/, "").trim())
-      .filter((line) => line.length > 0);
+      .filter(Boolean);
   };
 
   const experience = Array.isArray(rawCV.experience)
@@ -172,10 +192,7 @@ function sanitizeImprovedCV(cv: unknown): ImprovedCV {
           company: cleanText(item.company),
           role: cleanText(item.role),
           period: cleanText(item.period),
-          bullets: sanitizeBullets(
-            item.bullets,
-            typeof item.description === "string" ? item.description : undefined,
-          ),
+          bullets: sanitizeBullets(item.bullets, typeof item.description === "string" ? item.description : undefined),
         };
       })
     : [];
@@ -192,27 +209,16 @@ function sanitizeImprovedCV(cv: unknown): ImprovedCV {
       })
     : [];
 
-  const skills = Array.isArray(rawCV.skills)
-    ? rawCV.skills.map(cleanText).filter(Boolean)
-    : [];
-
   const projects = Array.isArray(rawCV.projects)
     ? rawCV.projects.map((entry) => {
         const item = asRecord(entry);
         return {
           name: cleanText(item.name),
-          bullets: sanitizeBullets(
-            item.bullets,
-            typeof item.description === "string" ? item.description : undefined,
-          ),
+          bullets: sanitizeBullets(item.bullets, typeof item.description === "string" ? item.description : undefined),
           period: item.period ? cleanText(item.period) : undefined,
         };
       })
     : [];
-
-  const certifications = Array.isArray(rawCV.certifications)
-    ? rawCV.certifications.map(cleanText).filter(Boolean)
-    : undefined;
 
   return {
     name: cleanText(rawCV.name),
@@ -221,26 +227,44 @@ function sanitizeImprovedCV(cv: unknown): ImprovedCV {
     summary: cleanText(rawCV.summary),
     experience,
     education,
-    skills,
-    projects: projects.length > 0 ? projects : undefined,
-    certifications,
+    skills: Array.isArray(rawCV.skills) ? rawCV.skills.map(cleanText).filter(Boolean) : [],
+    projects: projects.length ? projects : undefined,
+    certifications: Array.isArray(rawCV.certifications) ? rawCV.certifications.map(cleanText).filter(Boolean) : undefined,
   };
 }
 
-export default function Home() {
+export default function HomePage() {
+  const [screen, setScreen] = useState<Screen>("home");
+  const [inputMode, setInputMode] = useState<InputMode>("pdf");
   const [file, setFile] = useState<File | null>(null);
   const [pastedText, setPastedText] = useState("");
-  const [useTextMode, setUseTextMode] = useState(false);
   const [dragActive, setDragActive] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const [loadingStep, setLoadingStep] = useState(0);
-  const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<AnalysisResponse | null>(null);
+  const [analysis, setAnalysis] = useState<AnalysisResponse | null>(null);
+  const [visualNote, setVisualNote] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const canAnalyze = useMemo(
-    () => Boolean(file || pastedText.trim()),
-    [file, pastedText],
-  );
+  const currentAnalysis = analysis ?? demoAnalysis;
+  const currentFileName = file?.name || "mi-cv.pdf";
+  const canAnalyze = useMemo(() => Boolean(file || pastedText.trim()), [file, pastedText]);
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "smooth" });
+  }, [screen]);
+
+  const acceptFile = (selectedFile: File) => {
+    if (selectedFile.type !== "application/pdf") {
+      setVisualNote("Para esta versión usa PDF o pega texto en la pestaña correspondiente.");
+      return;
+    }
+    setFile(selectedFile);
+    setInputMode("pdf");
+    setVisualNote(null);
+  };
+
+  const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = event.target.files?.[0];
+    if (selectedFile) acceptFile(selectedFile);
+  };
 
   const handleDrag = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -253,34 +277,14 @@ export default function Home() {
     event.stopPropagation();
     setDragActive(false);
     const droppedFile = event.dataTransfer.files?.[0];
-    if (droppedFile) {
-      acceptFile(droppedFile);
-    }
+    if (droppedFile) acceptFile(droppedFile);
   };
 
-  const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = event.target.files?.[0];
-    if (selectedFile) {
-      acceptFile(selectedFile);
-    }
-  };
-
-  const acceptFile = (selectedFile: File) => {
-    if (selectedFile.type !== "application/pdf") {
-      setError("Sube un archivo PDF para mantener el analisis en el formato correcto.");
-      return;
-    }
-
-    setFile(selectedFile);
-    setUseTextMode(false);
-    setError(null);
-  };
-
-  const fileToBase64 = (selectedFile: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
+  const fileToBase64 = (selectedFile: File): Promise<string> =>
+    new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => {
-        const result = reader.result as string;
+        const result = String(reader.result ?? "");
         const base64 = result.split(",")[1];
         if (base64) {
           resolve(base64);
@@ -291,21 +295,17 @@ export default function Home() {
       reader.onerror = reject;
       reader.readAsDataURL(selectedFile);
     });
-  };
 
-  const handleAnalyze = async () => {
+  const runAnalysis = async () => {
+    setVisualNote(null);
+
     if (!canAnalyze) {
-      setError("Sube tu CV en PDF o pega el texto para iniciar el analisis.");
+      setVisualNote("Sube tu CV en PDF o pega el texto para iniciar el analisis.");
+      setScreen("upload");
       return;
     }
 
-    setIsLoading(true);
-    setError(null);
-    setLoadingStep(0);
-
-    const timer = window.setInterval(() => {
-      setLoadingStep((step) => Math.min(step + 1, loadingSteps.length - 1));
-    }, 2600);
+    setScreen("analyzing");
 
     try {
       const pdfBase64 = file ? await fileToBase64(file) : undefined;
@@ -319,883 +319,954 @@ export default function Home() {
       });
 
       if (!response.ok) {
-        const payload = (await response.json().catch(() => ({}))) as {
-          error?: string;
-        };
+        const payload = (await response.json().catch(() => ({}))) as { error?: string };
         throw new Error(payload.error || "No se pudo analizar el CV.");
       }
 
       const data = (await response.json()) as AnalysisResponse;
       data.improvedCV = sanitizeImprovedCV(data.improvedCV);
-      setResult(data);
-    } catch (caughtError) {
-      const message =
-        caughtError instanceof Error
-          ? caughtError.message
-          : "No se pudo completar el analisis. Intenta de nuevo.";
-      setError(message);
-    } finally {
-      window.clearInterval(timer);
-      setIsLoading(false);
+      setAnalysis(data);
+      await wait(900);
+      setScreen("diagnosis");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No se pudo analizar el CV.";
+      setAnalysis(null);
+      setVisualNote(message);
+      setScreen("upload");
     }
   };
 
-  const handleDownloadPDF = async () => {
-    if (!result) return;
-
-    if (!result.deliveryDecision.allowDownload) {
-      window.alert(
-        result.deliveryDecision.userMessage ||
-          "La descarga no esta permitida para este documento.",
-      );
+  const downloadPDF = async () => {
+    if (!analysis) {
+      setVisualNote("Primero analiza tu CV para generar la version descargable.");
+      setScreen("upload");
       return;
     }
 
-    if (result.deliveryDecision.showWarningBeforeDownload) {
-      const confirmDownload = window.confirm(
-        result.deliveryDecision.userMessage ||
-          "Detectamos posibles detalles de lectura. Revisa el resultado antes de descargar.",
+    if (!currentAnalysis.deliveryDecision.allowDownload) {
+      setVisualNote(currentAnalysis.deliveryDecision.userMessage);
+      setScreen("diagnosis");
+      return;
+    }
+
+    if (currentAnalysis.deliveryDecision.showWarningBeforeDownload) {
+      const shouldContinue = window.confirm(
+        currentAnalysis.deliveryDecision.userMessage ||
+          "Detectamos posibles detalles de lectura. Revisa el resultado antes de usarlo.",
       );
-      if (!confirmDownload) return;
+
+      if (!shouldContinue) {
+        setScreen("diagnosis");
+        return;
+      }
     }
 
-    try {
-      const { jsPDF } = await import("jspdf");
-      const doc = new jsPDF("p", "pt", "a4");
-      const pageWidth = doc.internal.pageSize.getWidth();
-      const pageHeight = doc.internal.pageSize.getHeight();
-      const margin = 50;
-      const contentWidth = pageWidth - margin * 2;
-      let currentY = 52;
+    const { jsPDF } = await import("jspdf");
+    const doc = new jsPDF("p", "pt", "a4");
+    const cv = currentAnalysis.improvedCV;
+    const margin = 50;
+    let y = 56;
 
-      const ensureSpace = (height: number) => {
-        if (currentY + height > pageHeight - margin) {
+    const write = (text: string, size = 10, bold = false) => {
+      doc.setFont("helvetica", bold ? "bold" : "normal");
+      doc.setFontSize(size);
+      const lines = doc.splitTextToSize(text, 495);
+      lines.forEach((line: string) => {
+        if (y > 780) {
           doc.addPage();
-          currentY = margin;
+          y = margin;
         }
-      };
+        doc.text(line, margin, y);
+        y += size + 6;
+      });
+    };
 
-      const addText = (
-        text: string,
-        size: number,
-        style: "normal" | "bold" | "italic" = "normal",
-        spacing = 14,
-      ) => {
-        doc.setFont("helvetica", style);
-        doc.setFontSize(size);
-        doc.setTextColor(31, 41, 55);
-        const lines = doc.splitTextToSize(text, contentWidth);
-        ensureSpace(lines.length * spacing);
-        lines.forEach((line: string) => {
-          doc.text(line, margin, currentY);
-          currentY += spacing;
-        });
-      };
-
-      const addSectionTitle = (title: string) => {
-        ensureSpace(34);
-        currentY += 9;
-        doc.setDrawColor(209, 213, 219);
-        doc.line(margin, currentY, pageWidth - margin, currentY);
-        currentY += 18;
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(10.5);
-        doc.setTextColor(15, 23, 42);
-        doc.text(title.toUpperCase(), margin, currentY);
-        currentY += 17;
-      };
-
-      const addBullets = (items: string[]) => {
-        items.forEach((item) => {
-          const bulletLines = doc.splitTextToSize(item, contentWidth - 18);
-          ensureSpace(bulletLines.length * 12.5);
-          doc.setFont("helvetica", "normal");
-          doc.setFontSize(9);
-          doc.setTextColor(55, 65, 81);
-          doc.text("-", margin + 8, currentY);
-          bulletLines.forEach((line: string) => {
-            doc.text(line, margin + 18, currentY);
-            currentY += 12.5;
-          });
-        });
-      };
-
-      const cv = result.improvedCV;
-
-      doc.setTextColor(15, 23, 42);
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(22);
-      doc.text((cv.name || "CV").toUpperCase(), margin, currentY);
-      currentY += 24;
-
-      if (cv.title) addText(cv.title.toUpperCase(), 11, "bold", 15);
-      if (cv.contact) addText(cv.contact, 9, "normal", 13);
-
-      if (cv.summary) {
-        addSectionTitle("Resumen profesional");
-        addText(cv.summary, 9.5, "normal", 13.5);
-      }
-
-      if (cv.experience.length) {
-        addSectionTitle("Experiencia laboral");
-        cv.experience.forEach((item) => {
-          ensureSpace(42);
-          doc.setFont("helvetica", "bold");
-          doc.setFontSize(10);
-          doc.setTextColor(15, 23, 42);
-          doc.text(`${item.role} - ${item.company}`, margin, currentY);
-          doc.setFont("helvetica", "italic");
-          doc.setFontSize(9);
-          doc.setTextColor(75, 85, 99);
-          doc.text(
-            item.period || "",
-            pageWidth - margin - doc.getTextWidth(item.period || ""),
-            currentY,
-          );
-          currentY += 15;
-          addBullets(item.bullets);
-          currentY += 7;
-        });
-      }
-
-      if (cv.education.length) {
-        addSectionTitle("Educacion");
-        cv.education.forEach((item) => {
-          ensureSpace(30);
-          doc.setFont("helvetica", "bold");
-          doc.setFontSize(10);
-          doc.setTextColor(15, 23, 42);
-          doc.text(item.degree, margin, currentY);
-          doc.setFont("helvetica", "italic");
-          doc.setFontSize(9);
-          doc.setTextColor(75, 85, 99);
-          doc.text(
-            item.period || "",
-            pageWidth - margin - doc.getTextWidth(item.period || ""),
-            currentY,
-          );
-          currentY += 13;
-          addText(item.institution, 9, "normal", 12);
-          if (item.description) addText(item.description, 9, "italic", 12);
-          currentY += 4;
-        });
-      }
-
-      if (cv.skills.length) {
-        addSectionTitle("Habilidades");
-        addText(cv.skills.join(", "), 9, "normal", 13);
-      }
-
-      if (cv.projects?.length) {
-        addSectionTitle("Proyectos");
-        cv.projects.forEach((item) => {
-          addText(`${item.name}${item.period ? ` - ${item.period}` : ""}`, 10, "bold", 13);
-          addBullets(item.bullets);
-          currentY += 4;
-        });
-      }
-
-      if (cv.certifications?.length) {
-        addSectionTitle("Certificaciones");
-        cv.certifications.forEach((item) => addText(`- ${item}`, 9, "normal", 12.5));
-      }
-
-      const fileName = (cv.name || "BlankATS_CV").replace(/\s+/g, "_");
-      doc.save(`CV_BlankATS_${fileName}.pdf`);
-    } catch {
-      window.alert("Hubo un error al generar el PDF. Intenta de nuevo.");
+    write(cv.name || "CV BlankATS", 22, true);
+    if (cv.title) write(cv.title, 12, true);
+    if (cv.contact) write(cv.contact, 9);
+    y += 12;
+    if (cv.summary) {
+      write("Resumen profesional", 11, true);
+      write(cv.summary, 9);
     }
+    cv.experience.forEach((item) => {
+      y += 10;
+      write(`${item.role} · ${item.company}`, 11, true);
+      if (item.period) write(item.period, 9);
+      item.bullets.forEach((bullet) => write(`- ${bullet}`, 9));
+    });
+    if (cv.education.length) {
+      y += 10;
+      write("Educación", 11, true);
+      cv.education.forEach((item) => write(`${item.degree} · ${item.institution} · ${item.period}`, 9));
+    }
+    if (cv.skills.length) {
+      y += 10;
+      write("Habilidades", 11, true);
+      write(cv.skills.join(", "), 9);
+    }
+
+    doc.save(`CV_BlankATS_${(cv.name || "usuario").replace(/\s+/g, "_")}.pdf`);
   };
 
-  const handleReset = () => {
-    setFile(null);
-    setPastedText("");
-    setResult(null);
-    setError(null);
-    setUseTextMode(false);
+  const downloadDoc = () => {
+    if (!analysis) {
+      setVisualNote("Primero analiza tu CV para generar la version descargable.");
+      setScreen("upload");
+      return;
+    }
+
+    const cv = currentAnalysis.improvedCV;
+    const content = [
+      cv.name,
+      cv.title,
+      cv.contact,
+      "",
+      "Resumen profesional",
+      cv.summary,
+      "",
+      "Experiencia",
+      ...cv.experience.flatMap((item) => [
+        `${item.role} · ${item.company} · ${item.period}`,
+        ...item.bullets.map((bullet) => `- ${bullet}`),
+      ]),
+      "",
+      "Educación",
+      ...cv.education.map((item) => `${item.degree} · ${item.institution} · ${item.period}`),
+      "",
+      "Habilidades",
+      cv.skills.join(", "),
+    ].join("\n");
+
+    const blob = new Blob([content], { type: "application/msword" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `CV_BlankATS_${(cv.name || "usuario").replace(/\s+/g, "_")}.doc`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const goHome = () => {
+    setScreen("home");
+    setAnalysis(null);
+    setVisualNote(null);
+  };
+
+  const openPaywall = () => {
+    if (!analysis) {
+      setVisualNote("Primero sube o pega tu CV para generar una version mejorada.");
+      setScreen("upload");
+      return;
+    }
+
+    if (!analysis.deliveryDecision.allowDownload) {
+      setVisualNote(analysis.deliveryDecision.userMessage);
+      setScreen("diagnosis");
+      return;
+    }
+
+    setScreen("paywall");
+  };
+
+  const unlockImprovedCv = () => {
+    if (!analysis) {
+      setVisualNote("Primero analiza tu CV para generar la version descargable.");
+      setScreen("upload");
+      return;
+    }
+
+    if (!analysis.deliveryDecision.allowDownload) {
+      setVisualNote(analysis.deliveryDecision.userMessage);
+      setScreen("diagnosis");
+      return;
+    }
+
+    setScreen("success");
   };
 
   return (
-    <div className="min-h-screen overflow-hidden bg-[radial-gradient(circle_at_top_left,#eaf3ff_0,#f8fafc_34rem,#ffffff_70rem)] text-slate-950">
-      <AppHeader />
-      <main className="mx-auto flex w-full max-w-7xl flex-col px-4 pb-12 pt-6 sm:px-6 lg:px-8">
-        <AnimatePresence mode="wait">
-          {!result ? (
-            <motion.section
-              key="intake"
-              initial={{ opacity: 0, y: 18 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -18 }}
-              transition={{ duration: 0.34, ease: "easeOut" }}
-              className="grid gap-8 lg:grid-cols-[0.88fr_1.12fr] lg:items-start"
-            >
-              <HeroPanel />
-              <div className="space-y-5">
-                <IntakeCard
-                  canAnalyze={canAnalyze}
-                  dragActive={dragActive}
-                  error={error}
-                  file={file}
-                  isLoading={isLoading}
-                  pastedText={pastedText}
-                  useTextMode={useTextMode}
-                  onAnalyze={handleAnalyze}
-                  onDrag={handleDrag}
-                  onDrop={handleDrop}
-                  onFileChange={handleFileChange}
-                  onTextChange={setPastedText}
-                  onUseTextMode={setUseTextMode}
-                />
-                {isLoading ? <LoadingState activeStep={loadingStep} /> : null}
-              </div>
-            </motion.section>
-          ) : (
-            <ResultsView
-              key="results"
-              result={result}
-              onDownload={handleDownloadPDF}
-              onReset={handleReset}
-            />
-          )}
-        </AnimatePresence>
-      </main>
-    </div>
+    <main className="min-h-screen overflow-x-hidden bg-white text-[#070b2f]">
+      <div className="mx-auto min-h-screen w-full max-w-[430px] overflow-x-hidden bg-white">
+        {screen === "home" ? <LandingScreen onGo={setScreen} /> : null}
+        {screen === "upload" ? (
+          <UploadScreen
+            canAnalyze={canAnalyze}
+            dragActive={dragActive}
+            file={file}
+            fileInputRef={fileInputRef}
+            inputMode={inputMode}
+            note={visualNote}
+            pastedText={pastedText}
+            onAnalyze={runAnalysis}
+            onBack={() => setScreen("home")}
+            onDrag={handleDrag}
+            onDrop={handleDrop}
+            onFileChange={handleFileChange}
+            onMode={setInputMode}
+            onText={setPastedText}
+          />
+        ) : null}
+        {screen === "analyzing" ? <AnalyzingScreen fileName={currentFileName} /> : null}
+        {screen === "diagnosis" ? (
+          <DiagnosisScreen
+            analysis={currentAnalysis}
+            note={visualNote}
+            onBack={() => setScreen("upload")}
+            onUnlock={openPaywall}
+          />
+        ) : null}
+        {screen === "paywall" ? (
+          <PaywallScreen onBack={() => setScreen(analysis ? "diagnosis" : "home")} onUnlock={unlockImprovedCv} />
+        ) : null}
+        {screen === "success" ? (
+          <SuccessScreen
+            analysis={currentAnalysis}
+            fileName={currentFileName}
+            onDoc={downloadDoc}
+            onHome={goHome}
+            onPdf={downloadPDF}
+          />
+        ) : null}
+      </div>
+    </main>
   );
 }
 
-function AppHeader() {
+function wait(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function compactFileName(name: string, maxLength = 34) {
+  if (name.length <= maxLength) return name;
+
+  const lastDot = name.lastIndexOf(".");
+  const hasExtension = lastDot > 0 && lastDot < name.length - 1;
+  const extension = hasExtension ? name.slice(lastDot + 1) : "";
+  const baseName = hasExtension ? name.slice(0, lastDot) : name;
+  const availableBase = Math.max(10, maxLength - extension.length - 3);
+
+  return `${baseName.slice(0, availableBase)}...${extension}`;
+}
+
+function LandingScreen({ onGo }: { onGo: (screen: Screen) => void }) {
   return (
-    <header className="sticky top-0 z-40 border-b border-white/70 bg-white/78 px-4 py-3 backdrop-blur-xl sm:px-6 lg:px-8">
-      <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <Image
-            src="/blankats-wordmark.png"
-            alt="BlankATS"
-            width={820}
-            height={240}
-            priority
-            className="h-10 w-auto max-w-[210px] object-contain sm:h-12"
-          />
-          <p className="hidden text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 sm:block">
-            CV clarity studio
+    <ScreenShell>
+      <SimpleHeader />
+
+      <section className="px-5 pt-8 text-center">
+        <h1 className="text-[34px] font-black leading-[1.03] tracking-[-0.03em] min-[390px]:text-[37px]">
+          Mejora tu CV
+          <span className="block text-[#0068ff]">antes de enviarlo</span>
+        </h1>
+        <p className="mx-auto mt-3 max-w-[340px] text-[15px] font-medium leading-6 text-[#626a79]">
+          Recibe un diagnóstico gratuito y desbloquea una versión profesional más clara, ordenada y lista para descargar.
+        </p>
+        <button className="mt-5 flex h-[54px] w-full items-center justify-center gap-3 rounded-[11px] bg-[#0068ff] text-[18px] font-black text-white shadow-[0_12px_24px_rgba(0,104,255,0.24)] transition duration-200 hover:-translate-y-0.5 active:scale-[0.98]" onClick={() => onGo("upload")}>
+          <Sparkles className="h-5 w-5" />
+          Analizar mi CV gratis
+        </button>
+      </section>
+
+      <section className="px-5 pt-6">
+        <HomeScoreCard />
+      </section>
+
+      <section className="px-5 pt-5">
+        <h2 className="text-left text-[21px] font-black">Cómo funciona</h2>
+        <div className="mt-3 grid grid-cols-1 gap-2.5">
+          <HowStep icon={<Upload className="h-9 w-9" />} number="1" title="Sube tu CV">
+            Carga tu PDF y nuestra IA lo analiza al instante.
+          </HowStep>
+          <HowStep icon={<BarChart3 className="h-9 w-9" />} number="2" title="Recibe diagnóstico">
+            Obtén tu puntaje y una lista de mejoras clave.
+          </HowStep>
+          <HowStep icon={<FileText className="h-9 w-9" />} number="3" title="Desbloquea versión mejorada">
+            Descarga tu CV optimizado listo para enviar.
+          </HowStep>
+        </div>
+      </section>
+
+      <section className="px-5 pt-5">
+        <OfferCard onClick={() => onGo("upload")} />
+      </section>
+
+      <ProtectedNote className="mt-4 pb-5" />
+    </ScreenShell>
+  );
+}
+
+function UploadScreen({
+  canAnalyze,
+  dragActive,
+  file,
+  fileInputRef,
+  inputMode,
+  note,
+  pastedText,
+  onAnalyze,
+  onBack,
+  onDrag,
+  onDrop,
+  onFileChange,
+  onMode,
+  onText,
+}: {
+  canAnalyze: boolean;
+  dragActive: boolean;
+  file: File | null;
+  fileInputRef: React.RefObject<HTMLInputElement | null>;
+  inputMode: InputMode;
+  note: string | null;
+  pastedText: string;
+  onAnalyze: () => void;
+  onBack: () => void;
+  onDrag: (event: DragEvent<HTMLDivElement>) => void;
+  onDrop: (event: DragEvent<HTMLDivElement>) => void;
+  onFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  onMode: (mode: InputMode) => void;
+  onText: (text: string) => void;
+}) {
+  return (
+    <ScreenShell>
+      <BackHeader onBack={onBack} />
+      <section className="px-5 pt-6 text-center">
+        <Badge icon={<CloudUpload className="h-4 w-4" />}>Carga de CV</Badge>
+        <h1 className="mt-5 text-[36px] font-black leading-none tracking-[-0.035em] min-[390px]:text-[39px]">
+          Sube tu <span className="text-[#0068ff]">CV</span>
+        </h1>
+        <p className="mx-auto mt-3 max-w-[340px] text-[16px] font-medium leading-7 text-[#626a79]">
+          Carga tu archivo PDF o pega el texto de tu currículum para recibir un diagnóstico gratuito.
+        </p>
+      </section>
+
+      <section className="px-5 pt-5">
+        <div className="grid h-[54px] grid-cols-2 rounded-[14px] border border-[#dbe2ec] bg-white p-1 shadow-[0_8px_20px_rgba(15,25,55,0.04)]">
+          <TabButton active={inputMode === "pdf"} icon={<FileText className="h-6 w-6" />} onClick={() => onMode("pdf")}>
+            Archivo PDF
+          </TabButton>
+          <TabButton active={inputMode === "text"} icon={<PenLine className="h-6 w-6" />} onClick={() => onMode("text")}>
+            Pegar texto
+          </TabButton>
+        </div>
+
+        <div className="mt-4 rounded-[18px] border border-[#e8edf4] bg-white p-4 shadow-[0_14px_34px_rgba(15,25,55,0.08)]">
+          {inputMode === "pdf" ? (
+            <div
+              className={`relative grid min-h-[188px] place-items-center rounded-[14px] border-2 border-dashed p-4 text-center ${
+                dragActive ? "border-[#0068ff] bg-[#f4f8ff]" : "border-[#8aa5c7] bg-white"
+              }`}
+              onDragEnter={onDrag}
+              onDragLeave={onDrag}
+              onDragOver={onDrag}
+              onDrop={onDrop}
+            >
+              <input ref={fileInputRef} type="file" accept="application/pdf" className="sr-only" onChange={onFileChange} />
+              <button className="absolute inset-0 cursor-pointer" aria-label="Seleccionar PDF" onClick={() => fileInputRef.current?.click()} type="button" />
+              <div>
+                <div className="mx-auto grid h-[70px] w-[70px] place-items-center rounded-full bg-[#edf5ff] text-[#0068ff]">
+                  <FileText className="h-9 w-9" />
+                </div>
+                <h2
+                  className="mx-auto mt-5 max-w-full overflow-hidden text-ellipsis whitespace-nowrap px-1 text-[20px] font-black tracking-[-0.02em]"
+                  title={file?.name}
+                >
+                  {file ? compactFileName(file.name) : <>Arrastra o <span className="text-[#0068ff]">selecciona</span> tu CV</>}
+                </h2>
+                <p className="mt-2 text-[15px] font-medium text-[#8a929f]">Solo PDF · Máx. 10 MB</p>
+              </div>
+            </div>
+          ) : (
+            <textarea
+              value={pastedText}
+              onChange={(event) => onText(event.target.value)}
+              className="min-h-[188px] w-full resize-none rounded-[14px] border-2 border-dashed border-[#8aa5c7] bg-white p-4 text-[15px] leading-6 text-[#070b2f] outline-none placeholder:text-[#8a929f]"
+              placeholder="Pega aquí el texto de tu currículum para recibir el diagnóstico visual."
+            />
+          )}
+        </div>
+
+        <div className="mt-4 flex items-center gap-3 rounded-[16px] border border-[#e7edf5] bg-white p-4 shadow-[0_10px_26px_rgba(15,25,55,0.05)]">
+          <div className="grid h-[54px] w-[54px] shrink-0 place-items-center rounded-full bg-[#edf5ff] text-[#0068ff]">
+            <ShieldCheck className="h-8 w-8" />
+          </div>
+          <p className="text-[15px] font-medium leading-6 text-[#626a79]">
+            <span className="font-black text-[#070b2f]">Tus datos están protegidos.</span> No compartimos tu información y tu archivo se usa solo para el análisis.
           </p>
         </div>
-        <div className="hidden items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 shadow-sm sm:flex">
-          <ShieldCheck className="h-3.5 w-3.5 text-blue-600" />
-          Motor IA Studio preservado
+
+        {note ? <p className="mt-4 rounded-[12px] bg-[#fff7e9] px-4 py-3 text-[14px] font-bold leading-6 text-[#935a12]">{note}</p> : null}
+
+        <button className="mt-5 flex h-[56px] w-full items-center justify-center gap-3 rounded-[13px] bg-[#0068ff] text-[18px] font-black text-white shadow-[0_12px_24px_rgba(0,104,255,0.24)] transition duration-200 hover:-translate-y-0.5 active:scale-[0.98] disabled:bg-[#9fc7ff]" disabled={!canAnalyze} onClick={onAnalyze}>
+          <Sparkles className="h-7 w-7" />
+          Analizar mi CV
+        </button>
+      </section>
+    </ScreenShell>
+  );
+}
+
+function AnalyzingScreen({ fileName }: { fileName: string }) {
+  return (
+    <ScreenShell>
+      <SimpleHeader />
+      <section className="px-5 pt-6 text-center">
+        <Badge icon={<Sparkles className="h-4 w-4" />}>Procesando tu CV</Badge>
+        <h1 className="mt-5 text-[34px] font-black leading-none tracking-[-0.035em] min-[390px]:text-[37px]">Analizando tu CV</h1>
+        <p className="mt-3 text-[16px] font-medium text-[#626a79]">Estamos revisando estructura, claridad y formato.</p>
+        <div className="mt-5">
+          <ProgressRing value={72} mode="percent" size={168} />
+        </div>
+      </section>
+
+      <section className="px-5 pt-5">
+        <div className="flex items-center gap-3 rounded-[14px] border border-[#e4e9f0] bg-white p-4 shadow-[0_10px_26px_rgba(15,25,55,0.06)]">
+          <PdfIcon />
+          <div className="min-w-0 flex-1">
+            <p className="max-w-full truncate text-[19px] font-black" title={fileName}>
+              {compactFileName(fileName)}
+            </p>
+            <p className="mt-1 text-[14px] font-medium text-[#626a79]">4.4 KB · PDF</p>
+          </div>
+          <CheckCircle2 className="h-8 w-8 shrink-0 text-[#18b965]" />
+        </div>
+
+        <div className="mt-4 rounded-[15px] border border-[#e4e9f0] bg-white p-4 shadow-[0_10px_26px_rgba(15,25,55,0.06)]">
+          <TimelineStep done number="1" title="Extrayendo texto">Obteniendo y estructurando el texto de tu documento.</TimelineStep>
+          <TimelineStep done number="2" title="Analizando contenido">Evaluando claridad, relevancia y estructura.</TimelineStep>
+          <TimelineStep active number="3" title="Optimizando formato">Mejorando presentación, secciones y legibilidad.</TimelineStep>
+          <TimelineStep number="4" title="Generando versión mejorada">Redactando sugerencias y preparando tu CV optimizado.</TimelineStep>
+        </div>
+
+        <div className="mt-4 flex items-center justify-center gap-2 border-b border-[#edf0f5] pb-4 text-[16px] font-medium text-[#626a79]">
+          <Clock3 className="h-6 w-6 text-[#0068ff]" />
+          Esto tarda menos de 1 minuto
+        </div>
+      </section>
+
+      <section className="px-5 pt-4 pb-5">
+        <h2 className="text-[21px] font-black">¿Qué estamos evaluando?</h2>
+        <div className="mt-3 grid grid-cols-1 gap-2.5">
+          <EvalCard icon={<FileText className="h-8 w-8" />} title="Formato">Estructura, orden y legibilidad del CV.</EvalCard>
+          <EvalCard icon={<UserRound className="h-8 w-8" />} title="Contenido">Relevancia, claridad y palabras clave.</EvalCard>
+          <EvalCard icon={<Star className="h-8 w-8" />} title="Impacto">Alineación con el puesto y resultados.</EvalCard>
+        </div>
+      </section>
+    </ScreenShell>
+  );
+}
+
+function DiagnosisScreen({
+  analysis,
+  note,
+  onBack,
+  onUnlock,
+}: {
+  analysis: AnalysisResponse;
+  note: string | null;
+  onBack: () => void;
+  onUnlock: () => void;
+}) {
+  return (
+    <ScreenShell>
+      <BackHeader onBack={onBack} />
+      <section className="px-5 pt-4 text-center">
+        <Badge icon={<Sparkles className="h-4 w-4" />}>Diagnóstico gratuito</Badge>
+        <h1 className="mt-4 text-[34px] font-black leading-none tracking-[-0.035em] min-[390px]:text-[37px]">Tu diagnóstico</h1>
+        <p className="mt-3 text-[16px] font-medium text-[#626a79]">Detectamos oportunidades de mejora en tu CV.</p>
+      </section>
+
+      <section className="px-5 pt-4 pb-5">
+        <div className="grid grid-cols-1 items-center gap-4 rounded-[15px] border border-[#e4e9f0] bg-white p-4 text-center shadow-[0_10px_26px_rgba(15,25,55,0.06)]">
+          <ProgressRing value={analysis.score || 78} mode="score" size={116} />
+          <div className="border-t border-[#e8edf4] pt-4 text-left">
+            <h2 className="text-[21px] font-black leading-tight">Buen potencial, pero hay áreas a mejorar.</h2>
+            <p className="mt-3 text-[15px] font-medium leading-6 text-[#626a79]">Tu CV tiene una base sólida. Con algunos ajustes, puedes aumentar su claridad, relevancia e impacto.</p>
+          </div>
+        </div>
+
+        {note ? <p className="mt-4 rounded-[12px] bg-[#fff7e9] px-4 py-3 text-[14px] font-bold leading-6 text-[#935a12]">{note}</p> : null}
+
+        <SectionTitle number="1" title="Problemas detectados" />
+        <div className="rounded-[15px] border border-[#e4e9f0] bg-white shadow-[0_8px_22px_rgba(15,25,55,0.05)]">
+          {problemRows(analysis).map((item) => <ProblemLine key={item.label} {...item} />)}
+        </div>
+
+        <SectionTitle number="2" title="Secciones detectadas" />
+        <div className="flex flex-wrap gap-3">
+          <Chip ok>Experiencia</Chip>
+          <Chip ok>Educación</Chip>
+          <Chip ok>Habilidades</Chip>
+          <Chip warn>Falta: {analysis.missingSections[0] || "Resumen"}</Chip>
+        </div>
+
+        <SectionTitle number="3" title="Recomendaciones clave" />
+        <div className="grid grid-cols-1 gap-2.5">
+          <RecoCard icon={<UserRound className="h-7 w-7" />} title="Mejora el resumen">Añade un resumen profesional claro que comunique tu valor.</RecoCard>
+          <RecoCard icon={<BarChart3 className="h-7 w-7" />} title="Refuerza logros">Cuantifica resultados para demostrar el impacto de tu trabajo.</RecoCard>
+          <RecoCard icon={<Search className="h-7 w-7" />} title="Optimiza palabras clave">Incluye términos relevantes para destacar.</RecoCard>
+        </div>
+
+        <SectionTitle number="4" title="Versión mejorada" />
+        <LockedPreview />
+
+        <button className="mt-4 flex h-[52px] w-full items-center justify-center gap-3 rounded-[8px] bg-[#0068ff] text-[18px] font-black text-white shadow-[0_10px_22px_rgba(0,104,255,0.22)] transition duration-200 hover:-translate-y-0.5 active:scale-[0.98]" onClick={onUnlock}>
+          <Lock className="h-7 w-7" />
+          Desbloquear mi CV mejorado
+        </button>
+
+        <div className="mt-4 grid grid-cols-1 divide-y divide-[#e2e8f0] rounded-[13px] border border-[#e7edf5] bg-white text-center text-[13px] font-medium text-[#626a79]">
+          <TrustItem icon={<FileDown className="h-7 w-7" />}>Pago único</TrustItem>
+          <TrustItem icon={<FileText className="h-7 w-7" />}>Descarga en PDF</TrustItem>
+          <TrustItem icon={<ShieldCheck className="h-7 w-7" />}>Pago seguro</TrustItem>
+        </div>
+      </section>
+    </ScreenShell>
+  );
+}
+
+function PaywallScreen({ onBack, onUnlock }: { onBack: () => void; onUnlock: () => void }) {
+  return (
+    <ScreenShell>
+      <div className="px-5 pt-6">
+        <button aria-label="Volver" className="mb-3 text-[#070b2f]" onClick={onBack}>
+          <ArrowLeft className="h-9 w-9" />
+        </button>
+        <div className="flex justify-center">
+          <BrandLogo large />
         </div>
       </div>
+      <section className="px-5 pt-5 text-center">
+        <h1 className="text-[34px] font-black leading-[1.04] tracking-[-0.035em] min-[390px]:text-[37px]">
+          Desbloquea tu
+          <span className="block text-[#0068ff]">CV mejorado</span>
+        </h1>
+        <p className="mt-3 text-[16px] font-medium text-[#626a79]">Conoce lo que ya optimizamos en tu documento.</p>
+      </section>
+
+      <section className="px-5 pt-4 pb-5">
+        <div className="grid grid-cols-1 gap-3 rounded-[16px] border border-[#e4e9f0] bg-white p-4 shadow-[0_10px_26px_rgba(15,25,55,0.05)]">
+          <MiniCvLocked />
+          <div className="text-left">
+            <h2 className="text-[19px] font-black">Vista final protegida</h2>
+            <p className="mt-2 text-[15px] font-medium leading-6 text-[#626a79]">Tu nueva versión está lista para ayudarte a destacar.</p>
+          </div>
+        </div>
+
+        <div className="mt-4 rounded-[16px] border border-[#e4e9f0] bg-white p-4 shadow-[0_10px_26px_rgba(15,25,55,0.05)]">
+          <h2 className="text-center text-[21px] font-black">Tu nueva versión incluye</h2>
+          <FeatureLine icon={<PenLine className="h-7 w-7" />}>Resumen profesional reescrito</FeatureLine>
+          <FeatureLine icon={<Trophy className="h-7 w-7" />}>Logros más claros</FeatureLine>
+          <FeatureLine icon={<FileText className="h-7 w-7" />}>Formato limpio</FeatureLine>
+          <FeatureLine icon={<Layers3 className="h-7 w-7" />}>Secciones reorganizadas</FeatureLine>
+          <FeatureLine icon={<Search className="h-7 w-7" />}>Palabras clave reforzadas</FeatureLine>
+          <FeatureLine icon={<Download className="h-7 w-7" />}>PDF listo para descargar</FeatureLine>
+        </div>
+
+        <div className="mt-4 rounded-[16px] border border-[#e4e9f0] bg-white p-4 text-center shadow-[0_10px_26px_rgba(15,25,55,0.05)]">
+          <div className="flex flex-wrap items-end justify-center gap-x-4 gap-y-1">
+            <span className="pb-2 text-[20px] font-bold text-[#6f7682] line-through">$99 MXN</span>
+            <span className="text-[50px] font-black leading-none text-[#0068ff]">$49</span>
+            <span className="pb-2 text-[18px] font-black text-[#0068ff]">MXN</span>
+          </div>
+          <p className="mt-1 text-[15px] font-medium text-[#626a79]">Pago único · Sin suscripciones</p>
+          <button className="mt-4 flex h-[52px] w-full items-center justify-center gap-3 rounded-[10px] bg-[#0068ff] text-[18px] font-black text-white transition duration-200 hover:-translate-y-0.5 active:scale-[0.98]" onClick={onUnlock}>
+            Desbloquear mi CV profesional
+            <ArrowRight className="h-7 w-7" />
+          </button>
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 divide-y divide-[#e2e8f0] rounded-[13px] border border-[#e7edf5] bg-white text-center text-[12px] font-black text-[#070b2f]">
+          <TrustItem icon={<ShieldCheck className="h-8 w-8" />}>Pago único</TrustItem>
+          <TrustItem icon={<Sparkles className="h-8 w-8" />}>Entrega inmediata</TrustItem>
+          <TrustItem icon={<Lock className="h-8 w-8" />}>Tus datos están protegidos</TrustItem>
+        </div>
+      </section>
+    </ScreenShell>
+  );
+}
+
+function SuccessScreen({
+  analysis,
+  fileName,
+  onDoc,
+  onHome,
+  onPdf,
+}: {
+  analysis: AnalysisResponse;
+  fileName: string;
+  onDoc: () => void;
+  onHome: () => void;
+  onPdf: () => void;
+}) {
+  return (
+    <ScreenShell>
+      <header className="flex items-center justify-between gap-3 px-5 pt-6">
+        <BrandLogo />
+        <button className="flex h-[43px] shrink-0 items-center gap-2 rounded-[8px] border border-[#cad8e8] bg-white px-3 text-[15px] font-black text-[#0c55b8]" onClick={onHome}>
+          <Home className="h-5 w-5" />
+          Ir al inicio
+        </button>
+      </header>
+
+      <section className="px-5 pt-6 text-center">
+        <div className="mx-auto grid h-[90px] w-[90px] place-items-center rounded-full bg-[#e4f9ef] text-[#0fbd68] shadow-[0_0_0_12px_rgba(228,249,239,0.45)]">
+          <Check className="h-12 w-12" strokeWidth={5} />
+        </div>
+        <h1 className="mt-7 text-[34px] font-black leading-none tracking-[-0.035em] min-[390px]:text-[37px]">¡Tu CV está listo!</h1>
+        <p className="mt-3 text-[17px] font-medium text-[#626a79]">Hemos generado tu versión mejorada.</p>
+      </section>
+
+      <section className="px-5 pt-5 pb-5">
+        <div className="flex items-center gap-3 rounded-[16px] border border-[#e4e9f0] bg-white p-4 shadow-[0_10px_26px_rgba(15,25,55,0.06)]">
+          <PdfIcon large />
+          <div className="min-w-0 flex-1 text-left">
+            <p className="truncate text-[18px] font-black min-[390px]:text-[20px]">CV_Josue_Bravo_BlankATS.pdf</p>
+            <span className="mt-3 inline-flex items-center gap-2 rounded-full bg-[#dff8ec] px-3 py-1.5 text-[14px] font-black text-[#129853]">
+              <CheckCircle2 className="h-5 w-5" />
+              Generado
+            </span>
+          </div>
+        </div>
+
+        <div className="mt-5 space-y-3">
+          <button className="flex h-[56px] w-full items-center justify-center gap-3 rounded-[10px] bg-[#0068ff] text-[19px] font-black text-white shadow-[0_12px_24px_rgba(0,104,255,0.24)] transition duration-200 hover:-translate-y-0.5 active:scale-[0.98]" onClick={onPdf} disabled={!analysis.deliveryDecision.allowDownload}>
+            <Download className="h-8 w-8" />
+            Descargar PDF
+          </button>
+          <button className="flex h-[52px] w-full items-center justify-center gap-3 rounded-[10px] border border-[#0068ff] bg-white text-[18px] font-black text-[#0068ff] transition duration-200 hover:-translate-y-0.5 active:scale-[0.98]" onClick={onDoc}>
+            <FileDown className="h-7 w-7" />
+            Descargar DOCX
+          </button>
+        </div>
+
+        <h2 className="mt-6 text-center text-[22px] font-black">Qué mejoramos</h2>
+        <div className="mt-4 grid grid-cols-1 gap-3">
+          <ImprovedCard icon={<FileText className="h-9 w-9" />} title="Resumen optimizado">Reescribimos tu perfil para hacerlo más claro, impactante y relevante.</ImprovedCard>
+          <ImprovedCard icon={<BarChart3 className="h-9 w-9" />} title="Logros reforzados" tone="green">Destacamos tus resultados con métricas y verbos de alto impacto.</ImprovedCard>
+          <ImprovedCard icon={<Layers3 className="h-9 w-9" />} title="Formato limpio" tone="purple">Diseño profesional, escaneable y optimizado para los ATS.</ImprovedCard>
+        </div>
+
+        <ProtectedNote className="mt-5" />
+        <p className="sr-only">Archivo original: {fileName}</p>
+      </section>
+    </ScreenShell>
+  );
+}
+
+function ScreenShell({ children }: { children: ReactNode }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 14, filter: "blur(6px)" }}
+      animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+      transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
+      className="min-h-screen bg-white"
+    >
+      {children}
+    </motion.div>
+  );
+}
+
+function SimpleHeader() {
+  return (
+    <header className="px-5 pt-6">
+      <BrandLogo />
     </header>
   );
 }
 
-function HeroPanel() {
+function BackHeader({ onBack }: { onBack: () => void }) {
   return (
-    <section className="pt-5 lg:pt-12">
-      <motion.div
-        initial={{ opacity: 0, y: 14 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.08, duration: 0.4 }}
-        className="max-w-xl"
-      >
-        <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-blue-100 bg-white/80 px-3 py-1.5 text-xs font-bold text-blue-700 shadow-sm">
-          <Sparkles className="h-3.5 w-3.5" />
-          Revision inteligente para CVs profesionales
-        </div>
-        <h1 className="text-balance text-4xl font-black leading-[0.98] tracking-tight text-slate-950 sm:text-5xl lg:text-6xl">
-          Convierte tu CV en una lectura clara y confiable.
-        </h1>
-        <p className="mt-5 max-w-lg text-base leading-7 text-slate-600 sm:text-lg">
-          BlankATS analiza tu PDF o texto, valida la calidad de lectura y prepara
-          una version mas ordenada, profesional y facil de revisar por reclutadores
-          y procesos digitales.
-        </p>
-        <div className="mt-7 grid gap-3 sm:grid-cols-3">
-          {safeHighlights.map((item) => (
-            <div
-              key={item}
-              className="rounded-lg border border-white bg-white/72 px-4 py-3 text-sm font-bold text-slate-700 shadow-sm"
-            >
-              {item}
-            </div>
-          ))}
-        </div>
-      </motion.div>
-    </section>
-  );
-}
-
-function IntakeCard({
-  canAnalyze,
-  dragActive,
-  error,
-  file,
-  isLoading,
-  pastedText,
-  useTextMode,
-  onAnalyze,
-  onDrag,
-  onDrop,
-  onFileChange,
-  onTextChange,
-  onUseTextMode,
-}: {
-  canAnalyze: boolean;
-  dragActive: boolean;
-  error: string | null;
-  file: File | null;
-  isLoading: boolean;
-  pastedText: string;
-  useTextMode: boolean;
-  onAnalyze: () => void;
-  onDrag: (event: DragEvent<HTMLDivElement>) => void;
-  onDrop: (event: DragEvent<HTMLDivElement>) => void;
-  onFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
-  onTextChange: (value: string) => void;
-  onUseTextMode: (value: boolean) => void;
-}) {
-  return (
-    <section className="rounded-lg border border-white bg-white/88 p-4 shadow-[0_24px_80px_rgba(15,23,42,0.10)] backdrop-blur sm:p-6 lg:mt-8">
-      <div className="rounded-lg border border-slate-100 bg-slate-50/70 p-2">
-        <div className="grid grid-cols-2 gap-2">
-          <ModeButton
-            active={!useTextMode}
-            icon={<FileUp className="h-4 w-4" />}
-            label="PDF"
-            onClick={() => onUseTextMode(false)}
-          />
-          <ModeButton
-            active={useTextMode}
-            icon={<TextCursorInput className="h-4 w-4" />}
-            label="Texto"
-            onClick={() => onUseTextMode(true)}
-          />
-        </div>
-      </div>
-
-      <div className="mt-5">
-        {useTextMode ? (
-          <TextInputArea value={pastedText} onChange={onTextChange} />
-        ) : (
-          <UploadDropzone
-            dragActive={dragActive}
-            file={file}
-            onDrag={onDrag}
-            onDrop={onDrop}
-            onFileChange={onFileChange}
-          />
-        )}
-      </div>
-
-      {error ? (
-        <motion.div
-          initial={{ opacity: 0, y: -8 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mt-4 flex gap-3 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm font-medium text-rose-800"
-        >
-          <AlertCircle className="h-5 w-5 shrink-0" />
-          {error}
-        </motion.div>
-      ) : null}
-
-      <button
-        type="button"
-        onClick={onAnalyze}
-        disabled={!canAnalyze || isLoading}
-        className="mt-5 flex min-h-14 w-full items-center justify-center gap-3 rounded-lg bg-slate-950 px-5 py-4 text-sm font-black text-white shadow-[0_18px_40px_rgba(15,23,42,0.20)] transition duration-200 hover:-translate-y-0.5 hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
-      >
-        {isLoading ? (
-          <>
-            <Loader2 className="h-5 w-5 animate-spin" />
-            Analizando CV
-          </>
-        ) : (
-          <>
-            Analizar mi CV
-            <ArrowRight className="h-5 w-5" />
-          </>
-        )}
+    <header className="flex items-center gap-3 px-5 pt-6">
+      <button aria-label="Volver" className="text-[#070b2f]" onClick={onBack}>
+        <ArrowLeft className="h-9 w-9" />
       </button>
-    </section>
+      <BrandLogo />
+    </header>
   );
 }
 
-function ModeButton({
-  active,
-  icon,
-  label,
-  onClick,
-}: {
-  active: boolean;
-  icon: ReactNode;
-  label: string;
-  onClick: () => void;
-}) {
+function BrandLogo({ large = false }: { large?: boolean }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`flex min-h-11 items-center justify-center gap-2 rounded-lg text-sm font-black transition ${
-        active
-          ? "bg-white text-slate-950 shadow-sm ring-1 ring-slate-200"
-          : "text-slate-500 hover:bg-white/70 hover:text-slate-800"
-      }`}
-    >
-      {icon}
-      {label}
-    </button>
-  );
-}
-
-function UploadDropzone({
-  dragActive,
-  file,
-  onDrag,
-  onDrop,
-  onFileChange,
-}: {
-  dragActive: boolean;
-  file: File | null;
-  onDrag: (event: DragEvent<HTMLDivElement>) => void;
-  onDrop: (event: DragEvent<HTMLDivElement>) => void;
-  onFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
-}) {
-  return (
-    <div
-      onDragEnter={onDrag}
-      onDragOver={onDrag}
-      onDragLeave={onDrag}
-      onDrop={onDrop}
-      className={`relative overflow-hidden rounded-lg border border-dashed p-7 text-center transition sm:p-9 ${
-        dragActive
-          ? "border-blue-400 bg-blue-50"
-          : "border-slate-200 bg-white hover:border-blue-300 hover:bg-blue-50/35"
-      }`}
-    >
-      <input
-        type="file"
-        accept="application/pdf"
-        onChange={onFileChange}
-        className="absolute inset-0 cursor-pointer opacity-0"
-        aria-label="Subir CV en PDF"
-      />
-      <div className="mx-auto grid h-16 w-16 place-items-center rounded-lg bg-slate-950 text-white shadow-lg">
-        <FileUp className="h-8 w-8" />
-      </div>
-      <h2 className="mt-6 text-xl font-black text-slate-950">
-        {file ? file.name : "Sube tu CV en PDF"}
-      </h2>
-      <p className="mx-auto mt-3 max-w-sm text-sm leading-6 text-slate-500">
-        {file
-          ? "Archivo listo para analizar. Puedes reemplazarlo tocando esta zona."
-          : "Arrastra tu archivo aqui o toca para seleccionarlo desde tu dispositivo."}
-      </p>
-      <p className="mt-5 text-xs font-black uppercase tracking-[0.18em] text-slate-400">
-        PDF recomendado
-      </p>
-    </div>
-  );
-}
-
-function TextInputArea({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <textarea
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
-      placeholder="Pega aqui el texto de tu CV si el PDF no se lee bien o quieres revisar contenido copiado."
-      className="min-h-72 w-full resize-none rounded-lg border border-slate-200 bg-white p-5 text-sm leading-7 text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
+    <Image
+      src="/blankats-wordmark.png"
+      alt="BlankATS"
+      width={640}
+      height={190}
+      priority
+      className={`${large ? "h-[50px] min-[390px]:h-[56px]" : "h-[36px] min-[390px]:h-[40px]"} w-auto max-w-full object-contain`}
     />
   );
 }
 
-function LoadingState({ activeStep }: { activeStep: number }) {
+function Badge({ children, icon }: { children: ReactNode; icon: ReactNode }) {
   return (
-    <motion.section
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="mt-5 rounded-lg border border-blue-100 bg-blue-50/70 p-4"
-    >
-      <div className="flex items-center gap-3">
-        <div className="grid h-10 w-10 place-items-center rounded-full bg-blue-600 text-white">
-          <Loader2 className="h-5 w-5 animate-spin" />
-        </div>
-        <div>
-          <p className="text-sm font-black text-slate-950">
-            {loadingSteps[activeStep]}
-          </p>
-          <p className="text-xs font-medium text-slate-500">
-            Validando lectura, datos y estructura del CV.
-          </p>
-        </div>
-      </div>
-      <div className="mt-4 h-2 overflow-hidden rounded-full bg-white">
-        <motion.div
-          className="h-full rounded-full bg-blue-600"
-          initial={{ width: "16%" }}
-          animate={{ width: `${((activeStep + 1) / loadingSteps.length) * 100}%` }}
-          transition={{ duration: 0.4 }}
-        />
-      </div>
-    </motion.section>
+    <span className="inline-flex items-center gap-2.5 rounded-full border border-[#dbe8f8] bg-[#edf5ff] px-4 py-1.5 text-[15px] font-black text-[#0c55b8] shadow-[inset_0_1px_1px_rgba(255,255,255,0.9)]">
+      <span className="text-[#0068ff]">{icon}</span>
+      {children}
+    </span>
   );
 }
 
-function ResultsView({
-  result,
-  onDownload,
-  onReset,
-}: {
-  result: AnalysisResponse;
-  onDownload: () => void;
-  onReset: () => void;
-}) {
-  const status = statusCopy[result.qualityStatus];
-
+function HomeScoreCard() {
   return (
-    <motion.section
-      initial={{ opacity: 0, y: 18 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -18 }}
-      transition={{ duration: 0.34, ease: "easeOut" }}
-      className="space-y-6"
-    >
-      <div className="rounded-lg border border-white bg-white/88 p-5 shadow-[0_24px_80px_rgba(15,23,42,0.10)] backdrop-blur sm:p-6">
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-black ${status.tone}`}>
-              {status.icon}
-              {status.title}
-            </div>
-            <h2 className="mt-4 text-3xl font-black tracking-tight text-slate-950">
-              Diagnostico del CV
-            </h2>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-              {result.deliveryDecision.userMessage}
-            </p>
-          </div>
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <button
-              type="button"
-              onClick={onReset}
-              className="flex min-h-12 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-5 text-sm font-black text-slate-800 transition hover:-translate-y-0.5 hover:border-slate-300"
-            >
-              <RefreshCw className="h-4 w-4" />
-              Analizar otro
-            </button>
-            <button
-              type="button"
-              onClick={onDownload}
-              disabled={!result.deliveryDecision.allowDownload}
-              className="flex min-h-12 items-center justify-center gap-2 rounded-lg bg-blue-600 px-5 text-sm font-black text-white shadow-[0_14px_30px_rgba(37,99,235,0.24)] transition hover:-translate-y-0.5 hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
-            >
-              <Download className="h-4 w-4" />
-              Descargar PDF
-            </button>
-          </div>
-        </div>
+    <div className="grid grid-cols-1 items-center gap-4 rounded-[15px] border border-[#e4e9f0] bg-white p-4 shadow-[0_10px_26px_rgba(15,25,55,0.07)]">
+      <ProgressRing value={78} mode="score" size={112} />
+      <div className="border-t border-[#e8edf4] pt-4 text-left">
+        <h2 className="text-[22px] font-black">Buen potencial</h2>
+        <span className="mt-2 inline-flex items-center gap-2 rounded-full bg-[#def8eb] px-3 py-1.5 text-[14px] font-black text-[#129853]">
+          <CheckCircle2 className="h-5 w-5" />
+          Análisis completado
+        </span>
+        <TinyIssue icon={<AlertTriangle className="h-5 w-5" />} text="Faltan palabras clave relevantes" />
+        <TinyIssue icon={<AlertTriangle className="h-5 w-5" />} text="Formato menos compatible" amber />
+        <TinyIssue icon={<Circle className="h-5 w-5" />} text="Poca cuantificación de logros" blue />
       </div>
-
-      <div className="grid gap-6 lg:grid-cols-[0.92fr_1.08fr]">
-        <div className="space-y-6">
-          <QualityPanel result={result} />
-          <InsightList title="Problemas detectados" items={result.problems} />
-          <InsightList title="Secciones faltantes" items={result.missingSections} />
-          <InsightList title="Recomendaciones" items={result.recommendations} />
-          <InsightList title="Advertencias de lectura" items={result.extractionWarnings} tone="amber" />
-          <InsightList title="Advertencias de datos" items={result.dataIntegrityWarnings} tone="rose" />
-        </div>
-        <CVPreview cv={result.improvedCV} />
-      </div>
-    </motion.section>
-  );
-}
-
-function QualityPanel({ result }: { result: AnalysisResponse }) {
-  const status = statusCopy[result.qualityStatus];
-  const score = Math.max(0, Math.min(100, Number(result.score) || 0));
-
-  return (
-    <section className="rounded-lg border border-white bg-white p-6 shadow-sm">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">
-            Score
-          </p>
-          <p className="mt-2 text-5xl font-black tracking-tight text-slate-950">
-            {score}
-          </p>
-        </div>
-        <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-black ${status.tone}`}>
-          {status.icon}
-          {status.label}
-        </div>
-      </div>
-      <div className="mt-5 h-3 overflow-hidden rounded-full bg-slate-100">
-        <motion.div
-          className="h-full rounded-full bg-blue-600"
-          initial={{ width: 0 }}
-          animate={{ width: `${score}%` }}
-          transition={{ duration: 0.7, ease: "easeOut" }}
-        />
-      </div>
-      <div className="mt-5 grid gap-3 text-sm">
-        <MetaRow label="Modo" value={processingModeLabel[result.processingMode]} />
-        <MetaRow label="Accion" value={recommendedActionLabel[result.recommendedAction]} />
-        <MetaRow
-          label="Descarga"
-          value={result.deliveryDecision.allowDownload ? "Permitida" : "Bloqueada"}
-        />
-      </div>
-      {result.qualityStatus === "yellow" ? (
-        <WarningBox>
-          La descarga esta permitida, pero se mostrara una confirmacion antes de generar el PDF.
-        </WarningBox>
-      ) : null}
-      {result.qualityStatus === "red" ? (
-        <WarningBox tone="rose">{result.deliveryDecision.userMessage}</WarningBox>
-      ) : null}
-    </section>
-  );
-}
-
-function MetaRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between gap-4 border-t border-slate-100 pt-3">
-      <span className="font-semibold text-slate-500">{label}</span>
-      <span className="text-right font-black text-slate-900">{value}</span>
     </div>
   );
 }
 
-function WarningBox({
-  children,
-  tone = "amber",
-}: {
-  children: ReactNode;
-  tone?: "amber" | "rose";
-}) {
-  const classes =
-    tone === "rose"
-      ? "border-rose-200 bg-rose-50 text-rose-800"
-      : "border-amber-200 bg-amber-50 text-amber-900";
-
+function ProgressRing({ value, mode, size }: { value: number; mode: "score" | "percent"; size: number }) {
+  const inner = size - 24;
   return (
-    <div className={`mt-5 rounded-lg border p-4 text-sm font-semibold leading-6 ${classes}`}>
-      {children}
+    <div className="mx-auto grid place-items-center rounded-full" style={{ width: size, height: size, background: `conic-gradient(${blue} 0deg ${value * 3.6}deg, #e8f1ff ${value * 3.6}deg 360deg)` }}>
+      <div className="grid place-items-center rounded-full bg-white" style={{ width: inner, height: inner }}>
+        <div className="text-center">
+          <p className={`${mode === "percent" ? "text-[44px]" : "text-[39px]"} font-black leading-none tracking-[-0.04em]`}>
+            {value}
+            {mode === "percent" ? <span className="text-[23px]">%</span> : null}
+          </p>
+          <p className={`${mode === "percent" ? "mt-1.5 text-[17px] text-[#626a79]" : "mt-1.5 text-[17px] text-[#626a79]"} font-medium`}>
+            {mode === "percent" ? "Analizando..." : "/100"}
+          </p>
+        </div>
+      </div>
     </div>
   );
 }
 
-function InsightList({
-  title,
-  items,
-  tone = "slate",
-}: {
-  title: string;
-  items: string[];
-  tone?: "slate" | "amber" | "rose";
-}) {
-  const toneClass =
-    tone === "amber"
-      ? "bg-amber-500"
-      : tone === "rose"
-        ? "bg-rose-500"
-        : "bg-blue-600";
-
+function TinyIssue({ amber, blue: isBlue, icon, text }: { amber?: boolean; blue?: boolean; icon: ReactNode; text: string }) {
   return (
-    <section className="rounded-lg border border-white bg-white p-5 shadow-sm">
-      <div className="flex items-center gap-3">
-        <span className={`h-2.5 w-2.5 rounded-full ${toneClass}`} />
-        <h3 className="text-sm font-black uppercase tracking-[0.14em] text-slate-950">
-          {title}
-        </h3>
-      </div>
-      {items?.length ? (
-        <ul className="mt-4 space-y-3">
-          {items.map((item) => (
-            <li key={item} className="flex gap-3 text-sm leading-6 text-slate-600">
-              <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-slate-300" />
-              {item}
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="mt-4 text-sm font-medium text-slate-400">
-          Sin observaciones relevantes.
-        </p>
-      )}
-    </section>
+    <div className="mt-3 flex items-center gap-3 border-b border-[#eef2f6] pb-2.5 last:border-b-0">
+      <span className={amber ? "text-[#d48624]" : isBlue ? "text-[#0c66d8]" : "text-[#cf334b]"}>{icon}</span>
+      <span className="flex-1 text-[15px] font-medium">{text}</span>
+      <ChevronRight className="h-5 w-5 text-[#9ba4b2]" />
+    </div>
   );
 }
 
-function CVPreview({ cv }: { cv: ImprovedCV }) {
+function HowStep({ children, icon, number, title }: { children: ReactNode; icon: ReactNode; number: string; title: string }) {
   return (
-    <article className="overflow-hidden rounded-lg border border-white bg-white shadow-[0_24px_80px_rgba(15,23,42,0.10)]">
-      <div className="flex flex-col gap-3 border-b border-slate-100 bg-slate-950 px-5 py-4 text-white sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-2 text-sm font-black">
-          <FileText className="h-4 w-4 text-blue-300" />
-          Preview del CV mejorado
-        </div>
-        <p className="text-xs font-semibold text-slate-300">
-          Formato limpio, una columna, facil de revisar
-        </p>
+    <div className="flex items-center gap-3 rounded-[14px] border border-[#e4e9f0] bg-white p-3.5 text-left shadow-[0_8px_18px_rgba(15,25,55,0.045)]">
+      <div className="relative grid h-[56px] w-[56px] shrink-0 place-items-center rounded-full bg-[#edf5ff] text-[#0068ff]">
+        <span className="absolute -left-1 -top-2 grid h-7 w-7 place-items-center rounded-full bg-[#0068ff] text-[16px] font-black text-white">{number}</span>
+        {icon}
       </div>
-      <div className="max-h-[760px] overflow-y-auto bg-slate-100 p-3 sm:p-6">
-        <div className="mx-auto min-h-[680px] max-w-[760px] bg-white px-6 py-8 text-slate-950 shadow-sm sm:px-10 sm:py-12">
-          <h2 className="text-3xl font-black uppercase tracking-tight text-slate-950">
-            {cv.name || "Nombre del candidato"}
-          </h2>
-          {cv.title ? (
-            <p className="mt-1 text-sm font-black uppercase tracking-[0.12em] text-slate-600">
-              {cv.title}
-            </p>
-          ) : null}
-          {cv.contact ? (
-            <p className="mt-3 border-b border-slate-200 pb-5 text-sm leading-6 text-slate-600">
-              {cv.contact}
-            </p>
-          ) : null}
-
-          {cv.summary ? (
-            <CVSection title="Resumen profesional">
-              <p className="text-sm leading-7 text-slate-700">{cv.summary}</p>
-            </CVSection>
-          ) : null}
-
-          {cv.experience.length > 0 ? (
-            <CVSection title="Experiencia laboral">
-              <div className="space-y-5">
-                {cv.experience.map((item) => (
-                  <div key={`${item.role}-${item.company}-${item.period}`}>
-                    <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
-                      <h3 className="text-sm font-black text-slate-950">
-                        {item.role}{" "}
-                        <span className="font-semibold text-slate-500">
-                          - {item.company}
-                        </span>
-                      </h3>
-                      <p className="text-xs font-semibold text-slate-500">
-                        {item.period}
-                      </p>
-                    </div>
-                    <ul className="mt-2 space-y-1.5 pl-4">
-                      {item.bullets.map((line) => (
-                        <li
-                          key={line}
-                          className="list-disc text-sm leading-6 text-slate-700 marker:text-slate-400"
-                        >
-                          {line}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ))}
-              </div>
-            </CVSection>
-          ) : null}
-
-          {cv.education.length > 0 ? (
-            <CVSection title="Educacion">
-              <div className="space-y-4">
-                {cv.education.map((item) => (
-                  <div key={`${item.degree}-${item.institution}-${item.period}`}>
-                    <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
-                      <h3 className="text-sm font-black text-slate-950">
-                        {item.degree}
-                      </h3>
-                      <p className="text-xs font-semibold text-slate-500">
-                        {item.period}
-                      </p>
-                    </div>
-                    <p className="mt-1 text-sm text-slate-600">{item.institution}</p>
-                    {item.description ? (
-                      <p className="mt-1 text-sm italic text-slate-600">
-                        {item.description}
-                      </p>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-            </CVSection>
-          ) : null}
-
-          {cv.skills.length > 0 ? (
-            <CVSection title="Habilidades">
-              <p className="text-sm leading-7 text-slate-700">
-                {cv.skills.join(" - ")}
-              </p>
-            </CVSection>
-          ) : null}
-
-          {cv.projects?.length ? (
-            <CVSection title="Proyectos">
-              <div className="space-y-4">
-                {cv.projects.map((item) => (
-                  <div key={`${item.name}-${item.period || ""}`}>
-                    <h3 className="text-sm font-black text-slate-950">
-                      {item.name}
-                      {item.period ? (
-                        <span className="font-semibold text-slate-500">
-                          {" "}
-                          - {item.period}
-                        </span>
-                      ) : null}
-                    </h3>
-                    <ul className="mt-2 space-y-1.5 pl-4">
-                      {item.bullets.map((line) => (
-                        <li
-                          key={line}
-                          className="list-disc text-sm leading-6 text-slate-700 marker:text-slate-400"
-                        >
-                          {line}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ))}
-              </div>
-            </CVSection>
-          ) : null}
-
-          {cv.certifications?.length ? (
-            <CVSection title="Certificaciones">
-              <ul className="grid gap-2 sm:grid-cols-2">
-                {cv.certifications.map((item) => (
-                  <li
-                    key={item}
-                    className="list-inside list-disc text-sm text-slate-700 marker:text-slate-400"
-                  >
-                    {item}
-                  </li>
-                ))}
-              </ul>
-            </CVSection>
-          ) : null}
-        </div>
+      <div>
+        <h3 className="text-[16px] font-black leading-5">{title}</h3>
+        <p className="mt-1 text-[13px] font-medium leading-5 text-[#626a79]">{children}</p>
       </div>
-    </article>
+    </div>
   );
 }
 
-function CVSection({
-  title,
-  children,
-}: {
-  title: string;
-  children: ReactNode;
-}) {
+function OfferCard({ onClick }: { onClick: () => void }) {
   return (
-    <section className="mt-7 border-t border-slate-200 pt-5">
-      <h3 className="mb-3 text-xs font-black uppercase tracking-[0.16em] text-slate-950">
-        {title}
-      </h3>
+    <div className="rounded-[15px] border border-[#e4e9f0] bg-white p-4 shadow-[0_10px_26px_rgba(15,25,55,0.06)]">
+      <div className="grid grid-cols-[58px_1fr] items-start gap-3">
+        <div className="grid h-[54px] w-[54px] place-items-center rounded-full bg-white text-[#0068ff] shadow-[0_8px_24px_rgba(15,25,55,0.10)]">
+          <Trophy className="h-8 w-8" />
+        </div>
+        <div className="min-w-0">
+          <h2 className="text-[19px] font-black leading-6">Desbloquea tu CV profesional</h2>
+          <p className="mt-1 text-[14px] font-medium leading-5 text-[#626a79]">Versión más clara, ordenada y lista para destacar.</p>
+          <div className="mt-3 flex flex-wrap items-end gap-x-3 gap-y-1">
+            <span className="pb-1.5 text-[17px] font-bold text-[#6f7682] line-through">$99 MXN</span>
+            <span className="text-[40px] font-black leading-none">$49</span>
+            <span className="pb-1.5 text-[17px] font-black text-[#0068ff]">MXN</span>
+            <span className="mb-2 rounded-full bg-[#edf5ff] px-3 py-1 text-[12px] font-black text-[#0c55b8]">Pago único</span>
+          </div>
+        </div>
+      </div>
+      <button className="mt-4 flex h-[50px] w-full items-center justify-center gap-3 rounded-[8px] bg-[#0068ff] text-[17px] font-black text-white transition duration-200 hover:-translate-y-0.5 active:scale-[0.98]" onClick={onClick}>
+        <Lock className="h-5 w-5" />
+        Desbloquear mi CV profesional
+      </button>
+    </div>
+  );
+}
+
+function ProtectedNote({ className = "" }: { className?: string }) {
+  return (
+    <div className={`flex items-center justify-center gap-4 text-center ${className}`}>
+      <ShieldCheck className="h-8 w-8 text-[#0068ff]" />
+      <p className="text-[14px] font-medium leading-5 text-[#626a79]">
+        <span className="font-black text-[#070b2f]">Tus datos están protegidos.</span>
+        <br />
+        No compartimos tu información.
+      </p>
+    </div>
+  );
+}
+
+function TabButton({ active, children, icon, onClick }: { active: boolean; children: ReactNode; icon: ReactNode; onClick: () => void }) {
+  return (
+    <button className={`flex items-center justify-center gap-2 rounded-[10px] text-[15px] font-black min-[390px]:gap-3 min-[390px]:text-[16px] ${active ? "bg-[#0068ff] text-white shadow-[0_8px_16px_rgba(0,104,255,0.22)]" : "text-[#5f6673]"}`} onClick={onClick}>
+      {icon}
       {children}
-    </section>
+    </button>
+  );
+}
+
+function PdfIcon({ large = false }: { large?: boolean }) {
+  return (
+    <div className={`grid ${large ? "h-[72px] w-[72px]" : "h-[52px] w-[52px]"} shrink-0 place-items-center rounded-[10px] border border-[#f1d7d7] bg-white text-[#e1242f]`}>
+      <FileText className={large ? "h-9 w-9" : "h-7 w-7"} />
+      <span className="-mt-2 text-[11px] font-black">PDF</span>
+    </div>
+  );
+}
+
+function TimelineStep({ active, children, done, number, title }: { active?: boolean; children: ReactNode; done?: boolean; number: string; title: string }) {
+  return (
+    <div className="grid grid-cols-[34px_1fr] gap-3 pb-5 last:pb-0">
+      <div className="relative flex justify-center">
+        {number !== "4" ? <span className="absolute top-8 h-full w-px bg-[#d6f2e5]" /> : null}
+        <span className={`relative z-10 grid h-8 w-8 place-items-center rounded-full text-[15px] font-black ${done ? "bg-[#9ff0c8] text-[#0f9f57]" : active ? "border-4 border-[#0068ff] bg-white text-[#0068ff]" : "bg-[#eef2f7] text-[#6f7682]"}`}>
+          {done ? <Check className="h-5 w-5" strokeWidth={4} /> : active ? "" : number}
+        </span>
+      </div>
+      <div>
+        <h3 className={`text-[17px] font-black leading-6 min-[390px]:text-[18px] ${active ? "text-[#0068ff]" : "text-[#070b2f]"}`}>{number}.&nbsp;&nbsp;{title}</h3>
+        <p className="mt-1 text-[14px] font-medium leading-6 text-[#626a79]">{children}</p>
+      </div>
+    </div>
+  );
+}
+
+function EvalCard({ children, icon, title }: { children: ReactNode; icon: ReactNode; title: string }) {
+  return (
+    <div className="rounded-[14px] border border-[#e4e9f0] bg-white p-3.5 text-center shadow-[0_8px_20px_rgba(15,25,55,0.05)]">
+      <div className="mx-auto grid h-10 w-10 place-items-center rounded-[12px] bg-[#edf5ff] text-[#0068ff]">{icon}</div>
+      <h3 className="mt-3 text-[16px] font-black">{title}</h3>
+      <p className="mt-2 text-[13px] font-medium leading-5 text-[#626a79]">{children}</p>
+    </div>
+  );
+}
+
+function problemRows(analysis: AnalysisResponse) {
+  const labels = analysis.problems.length ? analysis.problems : demoAnalysis.problems;
+  const severities = [
+    { severity: "Alto", tone: "red" as const },
+    { severity: "Medio", tone: "amber" as const },
+    { severity: "Medio", tone: "amber" as const },
+    { severity: "Bajo", tone: "blue" as const },
+  ];
+  return labels.slice(0, 4).map((label, index) => ({ label, ...severities[index] }));
+}
+
+function SectionTitle({ number, title }: { number: string; title: string }) {
+  return <h2 className="mt-5 mb-2.5 text-[18px] font-black">{number}. {title}</h2>;
+}
+
+function ProblemLine({ label, severity, tone }: { label: string; severity: string; tone: "red" | "amber" | "blue" }) {
+  const colors = {
+    red: "text-[#cf334b] bg-[#ffecef]",
+    amber: "text-[#b96b13] bg-[#fff3e3]",
+    blue: "text-[#0c66d8] bg-[#edf5ff]",
+  };
+  return (
+    <div className="flex min-h-[50px] items-center gap-3 border-b border-[#edf0f5] px-4 py-2.5 last:border-b-0">
+      <AlertTriangle className={`h-6 w-6 shrink-0 ${tone === "red" ? "text-[#cf334b]" : tone === "amber" ? "text-[#d48624]" : "text-[#0c66d8]"}`} />
+      <span className="flex-1 text-[14px] font-medium leading-5">{label}</span>
+      <span className={`shrink-0 rounded-full px-3 py-1 text-[13px] font-black ${colors[tone]}`}>{severity}</span>
+      <ChevronRight className="h-5 w-5 shrink-0 text-[#9ba4b2]" />
+    </div>
+  );
+}
+
+function Chip({ children, ok, warn }: { children: ReactNode; ok?: boolean; warn?: boolean }) {
+  return (
+    <span className={`inline-flex h-[38px] items-center gap-2 rounded-full border px-4 text-[14px] font-medium shadow-[0_6px_14px_rgba(15,25,55,0.04)] ${ok ? "border-[#d7f2e5] bg-white text-[#15995a]" : warn ? "border-[#ffe2bd] bg-[#fff5e7] text-[#a86315]" : ""}`}>
+      {ok ? <CheckCircle2 className="h-5 w-5" /> : <AlertTriangle className="h-5 w-5" />}
+      {children}
+    </span>
+  );
+}
+
+function RecoCard({ children, icon, title }: { children: ReactNode; icon: ReactNode; title: string }) {
+  return (
+    <div className="rounded-[11px] border border-[#e4e9f0] bg-white p-3.5 shadow-[0_8px_20px_rgba(15,25,55,0.05)]">
+      <div className="grid h-10 w-10 place-items-center rounded-full bg-[#edf5ff] text-[#0068ff]">{icon}</div>
+      <h3 className="mt-3 text-[15px] font-black leading-5">{title}</h3>
+      <p className="mt-2 text-[13px] font-medium leading-5 text-[#626a79]">{children}</p>
+      <ChevronRight className="ml-auto mt-2 h-5 w-5 text-[#9ba4b2]" />
+    </div>
+  );
+}
+
+function LockedPreview() {
+  return (
+    <div className="relative grid min-h-[168px] grid-cols-1 overflow-hidden rounded-[10px] border border-[#d9e4f1] bg-white">
+      <div className="p-4 pb-1 text-[14px] font-medium leading-6 text-[#626a79]">
+        Esta es una vista previa de cómo se verá tu CV optimizado. Desbloquéalo para conocer todos los detalles y descargarlo.
+      </div>
+      <MiniCvLocked />
+      <div className="absolute inset-0 grid place-items-center">
+        <div className="grid h-14 w-14 place-items-center rounded-full bg-white text-[#0068ff] shadow-[0_10px_28px_rgba(15,25,55,0.16)]">
+          <Lock className="h-7 w-7" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MiniCvLocked() {
+  return (
+    <div className="relative overflow-hidden rounded-[10px] bg-white p-4 blur-[1.8px]">
+      <div className="h-9 w-9 rounded-full bg-[#d6dbe3]" />
+      <div className="mt-3 h-3 w-32 rounded bg-[#cfd8e5]" />
+      <div className="mt-2 h-2 w-40 rounded bg-[#dbe2ec]" />
+      <div className="mt-4 space-y-2">
+        <span className="block h-2 w-full rounded bg-[#dbe2ec]" />
+        <span className="block h-2 w-10/12 rounded bg-[#dbe2ec]" />
+        <span className="block h-2 w-11/12 rounded bg-[#dbe2ec]" />
+      </div>
+    </div>
+  );
+}
+
+function TrustItem({ children, icon }: { children: ReactNode; icon: ReactNode }) {
+  return (
+    <div className="flex min-h-[50px] items-center justify-center gap-3 px-4 py-2.5 text-[#626a79]">
+      <span className="text-[#0068ff]">{icon}</span>
+      <span>{children}</span>
+    </div>
+  );
+}
+
+function FeatureLine({ children, icon }: { children: ReactNode; icon: ReactNode }) {
+  return (
+    <div className="mt-3 flex items-center gap-3 border-b border-[#edf0f5] pb-3 last:border-b-0">
+      <div className="grid h-10 w-10 shrink-0 place-items-center rounded-[10px] bg-[#edf5ff] text-[#0068ff]">{icon}</div>
+      <span className="text-[16px] font-medium leading-5">{children}</span>
+    </div>
+  );
+}
+
+function ImprovedCard({ children, icon, title, tone = "blue" }: { children: ReactNode; icon: ReactNode; title: string; tone?: "blue" | "green" | "purple" }) {
+  const colors = {
+    blue: "bg-[#edf5ff] text-[#0068ff]",
+    green: "bg-[#e9f9f0] text-[#18b965]",
+    purple: "bg-[#f1e9ff] text-[#9b47f0]",
+  };
+  return (
+    <div className="flex items-center gap-3 rounded-[14px] border border-[#e4e9f0] bg-white p-3.5 text-left shadow-[0_8px_20px_rgba(15,25,55,0.05)]">
+      <div className={`grid h-12 w-12 shrink-0 place-items-center rounded-full ${colors[tone]}`}>{icon}</div>
+      <div>
+        <h3 className="text-[16px] font-black leading-5">{title}</h3>
+        <p className="mt-1.5 text-[13px] font-medium leading-5 text-[#626a79]">{children}</p>
+      </div>
+    </div>
   );
 }
