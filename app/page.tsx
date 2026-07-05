@@ -243,13 +243,35 @@ export default function HomePage() {
   const [visualNote, setVisualNote] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const currentAnalysis = analysis ?? demoAnalysis;
+  const [analyzingProgress, setAnalyzingProgress] = useState(0);
+  const [analyzingMessage, setAnalyzingMessage] = useState("Leyendo el archivo…");
+  const [analyzingStep, setAnalyzingStep] = useState(1);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const analyzingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  const isDemoMode = typeof process !== "undefined" && process.env.NEXT_PUBLIC_DEMO_MODE === "true";
+  const currentAnalysis = analysis ?? (isDemoMode ? demoAnalysis : null);
   const currentFileName = file?.name || "mi-cv.pdf";
   const canAnalyze = useMemo(() => Boolean(file || pastedText.trim()), [file, pastedText]);
+  const hasRealAnalysis = Boolean(analysis);
 
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "smooth" });
   }, [screen]);
+
+  useEffect(() => {
+    return () => {
+      if (analyzingIntervalRef.current) {
+        clearInterval(analyzingIntervalRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!currentAnalysis && (screen === "diagnosis" || screen === "paywall" || screen === "success")) {
+      setScreen("upload");
+    }
+  }, [screen, currentAnalysis]);
 
   const acceptFile = (selectedFile: File) => {
     if (selectedFile.type !== "application/pdf") {
@@ -297,43 +319,226 @@ export default function HomePage() {
     });
 
   const runAnalysis = async () => {
+    if (analyzingIntervalRef.current) {
+      clearInterval(analyzingIntervalRef.current);
+    }
+
+    if (!canAnalyze) {
+      if (isDemoMode) {
+        setScreen("analyzing");
+        setVisualNote(null);
+        setAnalyzingProgress(10);
+        setAnalyzingStep(1);
+        setAnalyzingMessage("Leyendo el archivo…");
+        setElapsedSeconds(0);
+
+        const startTime = Date.now();
+        let progress = 10;
+
+        const intervalId = setInterval(() => {
+          const elapsed = (Date.now() - startTime) / 1000;
+          setElapsedSeconds(elapsed);
+
+          if (progress < 94) {
+            const inc = progress < 50 ? 2.5 : progress < 75 ? 1.5 : 0.8;
+            progress = Math.min(94, progress + inc);
+            setAnalyzingProgress(Math.floor(progress));
+          } else {
+            if (progress < 100) {
+              progress = Math.min(100, progress + 15);
+              setAnalyzingProgress(Math.floor(progress));
+            } else {
+              clearInterval(intervalId);
+              setAnalysis(demoAnalysis);
+              setTimeout(() => {
+                setScreen("diagnosis");
+              }, 600);
+            }
+          }
+
+          let step = 1;
+          let msg = "Leyendo el archivo…";
+          if (progress >= 100) {
+            step = 4;
+            msg = "Diagnóstico listo";
+          } else {
+            if (progress < 25) {
+              step = 1;
+              msg = "Leyendo el archivo…";
+            } else if (progress < 50) {
+              step = 2;
+              msg = "Detectando secciones del CV…";
+            } else if (progress < 75) {
+              step = 3;
+              msg = "Evaluando claridad y estructura…";
+            } else {
+              step = 4;
+              msg = "Construyendo versión mejorada…";
+            }
+          }
+
+          if (progress < 100) {
+            if (progress >= 10 && progress < 20) msg = "Leyendo el archivo…";
+            else if (progress >= 20 && progress < 35) msg = "Detectando secciones del CV…";
+            else if (progress >= 35 && progress < 55) msg = "Evaluando claridad y estructura…";
+            else if (progress >= 55 && progress < 75) msg = "Preparando recomendaciones…";
+            else if (progress >= 75) msg = "Construyendo versión mejorada…";
+          }
+
+          setAnalyzingStep(step);
+          setAnalyzingMessage(msg);
+        }, 150);
+        analyzingIntervalRef.current = intervalId;
+      } else {
+        setVisualNote("Por favor, sube un archivo PDF o pega el texto de tu CV para iniciar el análisis.");
+        setScreen("upload");
+      }
+      return;
+    }
+
     setScreen("analyzing");
     setVisualNote(null);
+    setAnalyzingProgress(10);
+    setAnalyzingStep(1);
+    setAnalyzingMessage("Leyendo el archivo…");
+    setElapsedSeconds(0);
 
-    try {
-      if (!canAnalyze) {
-        await wait(1500);
-        setAnalysis(demoAnalysis);
-        setScreen("diagnosis");
-        return;
+    const startTime = Date.now();
+    let progress = 10;
+    let apiCompleted = false;
+    let apiResult: AnalysisResponse | null = null;
+    let apiError: any = null;
+
+    const apiPromise = (async () => {
+      try {
+        const pdfBase64 = file ? await fileToBase64(file) : undefined;
+        const response = await fetch("/api/analyze", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            pdfBase64,
+            originalText: pastedText.trim() || undefined,
+          }),
+        });
+
+        if (!response.ok) {
+          let errDetail = "";
+          try {
+            const errData = await response.json();
+            errDetail = errData.error || "";
+          } catch {}
+          throw new Error(errDetail || "El análisis real falló.");
+        }
+
+        const data = (await response.json()) as AnalysisResponse;
+        data.improvedCV = sanitizeImprovedCV(data.improvedCV);
+        return data;
+      } catch (err: any) {
+        if (isDemoMode) {
+          console.warn("API failed in demo mode, falling back to demoAnalysis", err);
+          return demoAnalysis;
+        }
+        throw err;
       }
+    })();
 
-      const pdfBase64 = file ? await fileToBase64(file) : undefined;
-      const response = await fetch("/api/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          pdfBase64,
-          originalText: pastedText.trim() || undefined,
-        }),
+    apiPromise
+      .then((data) => {
+        apiResult = data;
+        apiCompleted = true;
+      })
+      .catch((err) => {
+        apiError = err;
+        apiCompleted = true;
       });
 
-      if (!response.ok) throw new Error("El análisis real no respondió en local.");
+    const intervalId = setInterval(() => {
+      const elapsed = (Date.now() - startTime) / 1000;
+      setElapsedSeconds(elapsed);
 
-      const data = (await response.json()) as AnalysisResponse;
-      data.improvedCV = sanitizeImprovedCV(data.improvedCV);
-      setAnalysis(data);
-    } catch {
-      setAnalysis(demoAnalysis);
-      setVisualNote("Vista demo: el diseño se puede revisar aunque el análisis real no esté disponible en local.");
-    } finally {
-      await wait(900);
-      setScreen("diagnosis");
-    }
+      if (!apiCompleted) {
+        if (progress < 94) {
+          const inc = progress < 50 ? 1.5 : progress < 75 ? 0.8 : 0.3;
+          progress = Math.min(94, progress + inc);
+          setAnalyzingProgress(Math.floor(progress));
+        }
+      } else {
+        if (apiError) {
+          clearInterval(intervalId);
+          setAnalysis(null);
+          setVisualNote(apiError?.message || "Ocurrió un error al analizar tu CV. Por favor, asegúrate de que el archivo sea válido o inténtalo de nuevo.");
+          setScreen("upload");
+          return;
+        }
+
+        if (elapsed >= 4.5) {
+          if (progress < 100) {
+            progress = Math.min(100, progress + 15);
+            setAnalyzingProgress(Math.floor(progress));
+          } else {
+            clearInterval(intervalId);
+            if (apiResult) {
+              setAnalysis(apiResult);
+              setTimeout(() => {
+                setScreen("diagnosis");
+              }, 600);
+            }
+          }
+        } else {
+          if (progress < 94) {
+            const inc = progress < 50 ? 1.5 : progress < 75 ? 0.8 : 0.3;
+            progress = Math.min(94, progress + inc);
+            setAnalyzingProgress(Math.floor(progress));
+          }
+        }
+      }
+
+      let step = 1;
+      let msg = "Leyendo el archivo…";
+      if (progress >= 100) {
+        step = 4;
+        msg = "Diagnóstico listo";
+      } else {
+        if (progress < 25) {
+          step = 1;
+          msg = "Leyendo el archivo…";
+        } else if (progress < 50) {
+          step = 2;
+          msg = "Detectando secciones del CV…";
+        } else if (progress < 75) {
+          step = 3;
+          msg = "Evaluando claridad y estructura…";
+        } else {
+          step = 4;
+          msg = "Construyendo versión mejorada…";
+        }
+      }
+
+      if (progress < 100) {
+        if (progress >= 10 && progress < 20) msg = "Leyendo el archivo…";
+        else if (progress >= 20 && progress < 35) msg = "Detectando secciones del CV…";
+        else if (progress >= 35 && progress < 55) msg = "Evaluando claridad y estructura…";
+        else if (progress >= 55 && progress < 75) msg = "Preparando recomendaciones…";
+        else if (progress >= 75) msg = "Construyendo versión mejorada…";
+      }
+
+      if (elapsed > 20 && progress < 100) {
+        msg = "Esto puede tardar un poco más si el CV tiene mucho contenido.";
+      }
+
+      setAnalyzingStep(step);
+      setAnalyzingMessage(msg);
+    }, 150);
+
+    analyzingIntervalRef.current = intervalId;
   };
 
   const downloadPDF = async () => {
-    if (!currentAnalysis) return;
+    if (!currentAnalysis) {
+      setVisualNote("No hay un análisis real disponible para descargar.");
+      setScreen("upload");
+      return;
+    }
 
     if (currentAnalysis.deliveryDecision && !currentAnalysis.deliveryDecision.allowDownload) {
       setVisualNote(currentAnalysis.deliveryDecision.userMessage);
@@ -853,7 +1058,11 @@ export default function HomePage() {
   };
 
   const downloadDoc = async () => {
-    if (!currentAnalysis) return;
+    if (!currentAnalysis) {
+      setVisualNote("No hay un análisis real disponible para descargar.");
+      setScreen("upload");
+      return;
+    }
 
     if (currentAnalysis.deliveryDecision && !currentAnalysis.deliveryDecision.allowDownload) {
       setVisualNote(currentAnalysis.deliveryDecision.userMessage);
@@ -1249,7 +1458,7 @@ export default function HomePage() {
   return (
     <main className="min-h-screen overflow-x-hidden bg-white text-[#070b2f]">
       <div className="mx-auto min-h-screen w-full max-w-[430px] overflow-x-hidden bg-white">
-        {screen === "home" ? <LandingScreen onGo={setScreen} /> : null}
+        {screen === "home" ? <LandingScreen onGo={setScreen} hasRealAnalysis={hasRealAnalysis} /> : null}
         {screen === "upload" ? (
           <UploadScreen
             canAnalyze={canAnalyze}
@@ -1268,8 +1477,16 @@ export default function HomePage() {
             onText={setPastedText}
           />
         ) : null}
-        {screen === "analyzing" ? <AnalyzingScreen fileName={currentFileName} /> : null}
-        {screen === "diagnosis" ? (
+        {screen === "analyzing" ? (
+          <AnalyzingScreen
+            fileName={currentFileName}
+            progress={analyzingProgress}
+            activeStep={analyzingStep}
+            loadingMessage={analyzingMessage}
+            file={file}
+          />
+        ) : null}
+        {screen === "diagnosis" && currentAnalysis ? (
           <DiagnosisScreen
             analysis={currentAnalysis}
             note={visualNote}
@@ -1280,7 +1497,7 @@ export default function HomePage() {
         {screen === "paywall" ? (
           <PaywallScreen onBack={() => setScreen("diagnosis")} onUnlock={() => setScreen("success")} />
         ) : null}
-        {screen === "success" ? (
+        {screen === "success" && currentAnalysis ? (
           <SuccessScreen
             analysis={currentAnalysis}
             fileName={currentFileName}
@@ -1310,7 +1527,7 @@ function compactFileName(name: string, maxLength = 34) {
   return `${baseName.slice(0, availableBase)}...${extension}`;
 }
 
-function LandingScreen({ onGo }: { onGo: (screen: Screen) => void }) {
+function LandingScreen({ onGo, hasRealAnalysis }: { onGo: (screen: Screen) => void; hasRealAnalysis: boolean }) {
   return (
     <ScreenShell>
       <SimpleHeader />
@@ -1349,7 +1566,7 @@ function LandingScreen({ onGo }: { onGo: (screen: Screen) => void }) {
       </section>
 
       <section className="px-5 pt-5">
-        <OfferCard onClick={() => onGo("paywall")} />
+        <OfferCard onClick={() => onGo(hasRealAnalysis ? "paywall" : "upload")} />
       </section>
 
       <ProtectedNote className="mt-4 pb-5" />
@@ -1467,36 +1684,56 @@ function UploadScreen({
   );
 }
 
-function AnalyzingScreen({ fileName }: { fileName: string }) {
+function AnalyzingScreen({
+  fileName,
+  progress,
+  activeStep,
+  loadingMessage,
+  file,
+}: {
+  fileName: string;
+  progress: number;
+  activeStep: number;
+  loadingMessage: string;
+  file: File | null;
+}) {
+  const getFileInfo = () => {
+    if (!file) {
+      return "Texto copiado · CV";
+    }
+    const sizeKb = (file.size / 1024).toFixed(1);
+    return `${sizeKb} KB · PDF`;
+  };
+
   return (
     <ScreenShell>
       <SimpleHeader />
       <section className="px-5 pt-6 text-center">
         <Badge icon={<Sparkles className="h-4 w-4" />}>Procesando tu CV</Badge>
         <h1 className="mt-5 text-[34px] font-black leading-none tracking-[-0.035em] min-[390px]:text-[37px]">Analizando tu CV</h1>
-        <p className="mt-3 text-[16px] font-medium text-[#626a79]">Estamos revisando estructura, claridad y formato.</p>
+        <p className="mt-3 min-h-[48px] px-3 text-[16px] font-medium text-[#626a79]">{loadingMessage}</p>
         <div className="mt-5">
-          <ProgressRing value={72} mode="percent" size={168} />
+          <ProgressRing value={progress} mode="percent" size={168} />
         </div>
       </section>
 
       <section className="px-5 pt-5">
         <div className="flex items-center gap-3 rounded-[14px] border border-[#e4e9f0] bg-white p-4 shadow-[0_10px_26px_rgba(15,25,55,0.06)]">
           <PdfIcon />
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0 flex-1 text-left">
             <p className="max-w-full truncate text-[19px] font-black" title={fileName}>
               {compactFileName(fileName)}
             </p>
-            <p className="mt-1 text-[14px] font-medium text-[#626a79]">4.4 KB · PDF</p>
+            <p className="mt-1 text-[14px] font-medium text-[#626a79]">{getFileInfo()}</p>
           </div>
           <CheckCircle2 className="h-8 w-8 shrink-0 text-[#18b965]" />
         </div>
 
         <div className="mt-4 rounded-[15px] border border-[#e4e9f0] bg-white p-4 shadow-[0_10px_26px_rgba(15,25,55,0.06)]">
-          <TimelineStep done number="1" title="Extrayendo texto">Obteniendo y estructurando el texto de tu documento.</TimelineStep>
-          <TimelineStep done number="2" title="Analizando contenido">Evaluando claridad, relevancia y estructura.</TimelineStep>
-          <TimelineStep active number="3" title="Optimizando formato">Mejorando presentación, secciones y legibilidad.</TimelineStep>
-          <TimelineStep number="4" title="Generando versión mejorada">Redactando sugerencias y preparando tu CV optimizado.</TimelineStep>
+          <TimelineStep done={activeStep > 1} active={activeStep === 1} number="1" title="Extrayendo texto">Obteniendo y estructurando el texto de tu documento.</TimelineStep>
+          <TimelineStep done={activeStep > 2} active={activeStep === 2} number="2" title="Analizando contenido">Evaluando claridad, relevancia y estructura.</TimelineStep>
+          <TimelineStep done={activeStep > 3} active={activeStep === 3} number="3" title="Optimizando formato">Mejorando presentación, secciones y legibilidad.</TimelineStep>
+          <TimelineStep done={activeStep > 4} active={activeStep === 4} number="4" title="Generando versión mejorada">Redactando sugerencias y preparando tu CV optimizado.</TimelineStep>
         </div>
 
         <div className="mt-4 flex items-center justify-center gap-2 border-b border-[#edf0f5] pb-4 text-[16px] font-medium text-[#626a79]">
@@ -1750,6 +1987,18 @@ function BackHeader({ onBack }: { onBack: () => void }) {
 }
 
 function BrandLogo({ large = false }: { large?: boolean }) {
+  const [imgError, setImgError] = useState(false);
+
+  if (imgError) {
+    return (
+      <div className="flex items-center gap-2 select-none py-1">
+        <span className={`font-black tracking-tight text-[#070b2f] ${large ? "text-[26px]" : "text-[20px]"}`}>
+          Blank<span className="text-[#0068ff]">ATS</span>
+        </span>
+      </div>
+    );
+  }
+
   return (
     <Image
       src="/blankats-wordmark.png"
@@ -1757,6 +2006,7 @@ function BrandLogo({ large = false }: { large?: boolean }) {
       width={640}
       height={190}
       priority
+      onError={() => setImgError(true)}
       className={`${large ? "h-[50px] min-[390px]:h-[56px]" : "h-[36px] min-[390px]:h-[40px]"} w-auto max-w-full object-contain`}
     />
   );
@@ -1800,7 +2050,7 @@ function ProgressRing({ value, mode, size }: { value: number; mode: "score" | "p
             {mode === "percent" ? <span className="text-[23px]">%</span> : null}
           </p>
           <p className={`${mode === "percent" ? "mt-1.5 text-[17px] text-[#626a79]" : "mt-1.5 text-[17px] text-[#626a79]"} font-medium`}>
-            {mode === "percent" ? "Analizando..." : "/100"}
+            {mode === "percent" ? (value === 100 ? "¡Listo!" : "Analizando...") : "/100"}
           </p>
         </div>
       </div>
