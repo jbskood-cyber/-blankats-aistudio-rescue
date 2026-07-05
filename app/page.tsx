@@ -297,17 +297,17 @@ export default function HomePage() {
     });
 
   const runAnalysis = async () => {
+    setScreen("analyzing");
     setVisualNote(null);
 
-    if (!canAnalyze) {
-      setVisualNote("Sube tu CV en PDF o pega el texto para iniciar el analisis.");
-      setScreen("upload");
-      return;
-    }
-
-    setScreen("analyzing");
-
     try {
+      if (!canAnalyze) {
+        await wait(1500);
+        setAnalysis(demoAnalysis);
+        setScreen("diagnosis");
+        return;
+      }
+
       const pdfBase64 = file ? await fileToBase64(file) : undefined;
       const response = await fetch("/api/analyze", {
         method: "POST",
@@ -318,171 +318,932 @@ export default function HomePage() {
         }),
       });
 
-      if (!response.ok) {
-        const payload = (await response.json().catch(() => ({}))) as { error?: string };
-        throw new Error(payload.error || "No se pudo analizar el CV.");
-      }
+      if (!response.ok) throw new Error("El análisis real no respondió en local.");
 
       const data = (await response.json()) as AnalysisResponse;
       data.improvedCV = sanitizeImprovedCV(data.improvedCV);
       setAnalysis(data);
+    } catch {
+      setAnalysis(demoAnalysis);
+      setVisualNote("Vista demo: el diseño se puede revisar aunque el análisis real no esté disponible en local.");
+    } finally {
       await wait(900);
       setScreen("diagnosis");
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "No se pudo analizar el CV.";
-      setAnalysis(null);
-      setVisualNote(message);
-      setScreen("upload");
     }
   };
 
   const downloadPDF = async () => {
-    if (!analysis) {
-      setVisualNote("Primero analiza tu CV para generar la version descargable.");
-      setScreen("upload");
-      return;
-    }
+    if (!currentAnalysis) return;
 
-    if (!currentAnalysis.deliveryDecision.allowDownload) {
+    if (currentAnalysis.deliveryDecision && !currentAnalysis.deliveryDecision.allowDownload) {
       setVisualNote(currentAnalysis.deliveryDecision.userMessage);
       setScreen("diagnosis");
       return;
     }
 
-    if (currentAnalysis.deliveryDecision.showWarningBeforeDownload) {
-      const shouldContinue = window.confirm(
-        currentAnalysis.deliveryDecision.userMessage ||
-          "Detectamos posibles detalles de lectura. Revisa el resultado antes de usarlo.",
-      );
+    try {
+      const { jsPDF } = await import("jspdf");
+      const doc = new jsPDF("p", "pt", "a4");
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const margin = 50;
+      const contentWidth = pageWidth - margin * 2;
+      let currentY = 50;
 
-      if (!shouldContinue) {
-        setScreen("diagnosis");
-        return;
-      }
-    }
+      // Approved Color Palette (BlankATS Clean Executive V1)
+      const colorName = [17, 24, 39];      // #111827 (casi negro)
+      const colorBody = [17, 24, 39];      // #111827 (casi negro)
+      const colorHeading = [15, 23, 42];   // #0F172A (casi negro)
+      const colorMuted = [55, 65, 81];     // #374151 (gris oscuro)
+      const colorLine = [209, 213, 219];   // #D1D5DB (gris claro)
 
-    const { jsPDF } = await import("jspdf");
-    const doc = new jsPDF("p", "pt", "a4");
-    const cv = currentAnalysis.improvedCV;
-    const margin = 50;
-    let y = 56;
-
-    const write = (text: string, size = 10, bold = false) => {
-      doc.setFont("helvetica", bold ? "bold" : "normal");
-      doc.setFontSize(size);
-      const lines = doc.splitTextToSize(text, 495);
-      lines.forEach((line: string) => {
-        if (y > 780) {
+      // Helper to add clean lines of text and auto-wrap / auto-page-break
+      const addText = (text: string, size: number, style: "normal" | "bold" | "italic" = "normal", spacing = 13.5) => {
+        doc.setFont("helvetica", style);
+        doc.setFontSize(size);
+        doc.setTextColor(colorBody[0], colorBody[1], colorBody[2]);
+        
+        const lines = doc.splitTextToSize(text, contentWidth);
+        const totalHeight = lines.length * spacing;
+        
+        if (currentY + totalHeight > pageHeight - margin) {
           doc.addPage();
-          y = margin;
+          currentY = margin + 10;
         }
-        doc.text(line, margin, y);
-        y += size + 6;
+        
+        lines.forEach((line: string) => {
+          doc.text(line, margin, currentY);
+          currentY += spacing;
+        });
+      };
+
+      // Helper for elegant section headers with solid thin lines
+      const addSectionHeader = (title: string) => {
+        if (currentY + 32 > pageHeight - margin) {
+          doc.addPage();
+          currentY = margin + 10;
+        } else {
+          currentY += 15;
+        }
+        
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(11);
+        doc.setTextColor(colorHeading[0], colorHeading[1], colorHeading[2]);
+        doc.text(title.toUpperCase(), margin, currentY);
+        currentY += 4;
+        
+        // Solid thin gray line below section header
+        doc.setDrawColor(colorLine[0], colorLine[1], colorLine[2]);
+        doc.setLineWidth(0.75);
+        doc.line(margin, currentY, pageWidth - margin, currentY);
+        currentY += 12;
+      };
+
+      const cv = currentAnalysis.improvedCV;
+
+      // Name (Main Header)
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(22);
+      doc.setTextColor(colorName[0], colorName[1], colorName[2]);
+      const nameText = cv.name.toUpperCase();
+      const nameLines = doc.splitTextToSize(nameText, contentWidth);
+      nameLines.forEach((line: string) => {
+        if (currentY + 24 > pageHeight - margin) {
+          doc.addPage();
+          currentY = margin + 10;
+        }
+        doc.text(line, margin, currentY);
+        currentY += 24;
       });
-    };
 
-    write(cv.name || "CV BlankATS", 22, true);
-    if (cv.title) write(cv.title, 12, true);
-    if (cv.contact) write(cv.contact, 9);
-    y += 12;
-    if (cv.summary) {
-      write("Resumen profesional", 11, true);
-      write(cv.summary, 9);
-    }
-    cv.experience.forEach((item) => {
-      y += 10;
-      write(`${item.role} · ${item.company}`, 11, true);
-      if (item.period) write(item.period, 9);
-      item.bullets.forEach((bullet) => write(`- ${bullet}`, 9));
-    });
-    if (cv.education.length) {
-      y += 10;
-      write("Educación", 11, true);
-      cv.education.forEach((item) => write(`${item.degree} · ${item.institution} · ${item.period}`, 9));
-    }
-    if (cv.skills.length) {
-      y += 10;
-      write("Habilidades", 11, true);
-      write(cv.skills.join(", "), 9);
-    }
+      // Title
+      if (cv.title) {
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(11.5);
+        doc.setTextColor(colorMuted[0], colorMuted[1], colorMuted[2]);
+        const titleText = cv.title.toUpperCase();
+        const titleLines = doc.splitTextToSize(titleText, contentWidth);
+        titleLines.forEach((line: string) => {
+          if (currentY + 15 > pageHeight - margin) {
+            doc.addPage();
+            currentY = margin + 10;
+          }
+          doc.text(line, margin, currentY);
+          currentY += 14;
+        });
+      }
 
-    doc.save(`CV_BlankATS_${(cv.name || "usuario").replace(/\s+/g, "_")}.pdf`);
+      // Contact
+      if (cv.contact) {
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(9.5);
+        doc.setTextColor(colorMuted[0], colorMuted[1], colorMuted[2]);
+        const contactLines = doc.splitTextToSize(cv.contact, contentWidth);
+        contactLines.forEach((line: string) => {
+          if (currentY + 13 > pageHeight - margin) {
+            doc.addPage();
+            currentY = margin + 10;
+          }
+          doc.text(line, margin, currentY);
+          currentY += 12;
+        });
+      }
+
+      currentY += 5;
+
+      // Professional Summary
+      if (cv.summary) {
+        addSectionHeader("RESUMEN PROFESIONAL");
+        addText(cv.summary, 9.5, "normal", 13.5);
+      }
+
+      // Work Experience
+      if (cv.experience && cv.experience.length > 0) {
+        addSectionHeader("EXPERIENCIA LABORAL");
+
+        cv.experience.forEach((exp) => {
+          if (currentY + 30 > pageHeight - margin) {
+            doc.addPage();
+            currentY = margin + 10;
+          }
+
+          const periodText = exp.period || "";
+          const roleText = exp.role || "";
+          const companyText = exp.company || "";
+
+          // Measure to prevent overlapping
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(10);
+          const rWidth = doc.getTextWidth(roleText);
+
+          doc.setFont("helvetica", "normal");
+          const cWidth = doc.getTextWidth(` — ${companyText}`);
+
+          doc.setFont("helvetica", "italic");
+          doc.setFontSize(9);
+          const pWidth = doc.getTextWidth(periodText);
+
+          const totalTextWidth = rWidth + cWidth;
+          const maxLeftWidth = contentWidth - pWidth - 15; // 15pt safety gap
+
+          // Check if Role, Company and Period fit on a single line
+          if (totalTextWidth <= maxLeftWidth) {
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(10);
+            doc.setTextColor(colorHeading[0], colorHeading[1], colorHeading[2]);
+            doc.text(roleText, margin, currentY);
+
+            doc.setFont("helvetica", "normal");
+            doc.setTextColor(colorMuted[0], colorMuted[1], colorMuted[2]);
+            doc.text(` — ${companyText}`, margin + rWidth, currentY);
+
+            doc.setFont("helvetica", "italic");
+            doc.setFontSize(9);
+            doc.setTextColor(colorMuted[0], colorMuted[1], colorMuted[2]);
+            doc.text(periodText, pageWidth - margin - pWidth, currentY);
+            currentY += 14;
+          } else {
+            // Overlap risk: Split into structured lines
+            // Line 1: Role in Bold
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(10);
+            doc.setTextColor(colorHeading[0], colorHeading[1], colorHeading[2]);
+            
+            const roleLines = doc.splitTextToSize(roleText, contentWidth);
+            roleLines.forEach((line: string) => {
+              if (currentY + 14 > pageHeight - margin) {
+                doc.addPage();
+                currentY = margin + 10;
+              }
+              doc.text(line, margin, currentY);
+              currentY += 13;
+            });
+
+            // Line 2: Company and Period
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(9.5);
+            const compWidthOnly = doc.getTextWidth(companyText);
+            const compAndPeriodFit = compWidthOnly + pWidth < contentWidth - 15;
+
+            if (currentY + 14 > pageHeight - margin) {
+              doc.addPage();
+              currentY = margin + 10;
+            }
+
+            if (compAndPeriodFit) {
+              doc.setFont("helvetica", "normal");
+              doc.setTextColor(colorMuted[0], colorMuted[1], colorMuted[2]);
+              doc.text(companyText, margin, currentY);
+
+              doc.setFont("helvetica", "italic");
+              doc.setFontSize(9);
+              doc.setTextColor(colorMuted[0], colorMuted[1], colorMuted[2]);
+              doc.text(periodText, pageWidth - margin - pWidth, currentY);
+              currentY += 14;
+            } else {
+              // Extremely long company or period, separate them entirely
+              doc.setFont("helvetica", "normal");
+              doc.setTextColor(colorMuted[0], colorMuted[1], colorMuted[2]);
+              
+              const companyLines = doc.splitTextToSize(companyText, contentWidth);
+              companyLines.forEach((line: string) => {
+                if (currentY + 14 > pageHeight - margin) {
+                  doc.addPage();
+                  currentY = margin + 10;
+                }
+                doc.text(line, margin, currentY);
+                currentY += 13;
+              });
+
+              if (currentY + 14 > pageHeight - margin) {
+                doc.addPage();
+                currentY = margin + 10;
+              }
+              doc.setFont("helvetica", "italic");
+              doc.setFontSize(9);
+              doc.setTextColor(colorMuted[0], colorMuted[1], colorMuted[2]);
+              doc.text(periodText, margin, currentY);
+              currentY += 14;
+            }
+          }
+
+          // Render bullets
+          const bullets = exp.bullets || [];
+          bullets.forEach((bullet) => {
+            let cleanBullet = bullet.trim();
+            if (cleanBullet.startsWith("-") || cleanBullet.startsWith("•") || cleanBullet.startsWith("*")) {
+              cleanBullet = cleanBullet.substring(1).trim();
+            }
+
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(9.5);
+            doc.setTextColor(colorBody[0], colorBody[1], colorBody[2]);
+
+            const bulletLines = doc.splitTextToSize(cleanBullet, contentWidth - 18);
+            const bulletHeight = bulletLines.length * 13;
+            
+            if (currentY + bulletHeight > pageHeight - margin) {
+              doc.addPage();
+              currentY = margin + 10;
+            }
+
+            // Draw bullet character
+            doc.setTextColor(colorMuted[0], colorMuted[1], colorMuted[2]);
+            doc.text("•", margin + 8, currentY + 1.5);
+            doc.setTextColor(colorBody[0], colorBody[1], colorBody[2]);
+
+            bulletLines.forEach((line: string) => {
+              doc.text(line, margin + 18, currentY);
+              currentY += 13;
+            });
+          });
+          currentY += 4;
+        });
+      }
+
+      // Education
+      if (cv.education && cv.education.length > 0) {
+        addSectionHeader("EDUCACIÓN");
+
+        cv.education.forEach((edu) => {
+          if (currentY + 30 > pageHeight - margin) {
+            doc.addPage();
+            currentY = margin + 10;
+          }
+
+          const degreeText = edu.degree || "";
+          const institutionText = edu.institution || "";
+          const periodText = edu.period || "";
+
+          // Measure to prevent overlapping
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(10);
+          const dWidth = doc.getTextWidth(degreeText);
+
+          doc.setFont("helvetica", "normal");
+          const iWidth = doc.getTextWidth(` — ${institutionText}`);
+
+          doc.setFont("helvetica", "italic");
+          doc.setFontSize(9);
+          const pWidth = doc.getTextWidth(periodText);
+
+          const totalEduTextWidth = dWidth + iWidth;
+          const maxLeftEduWidth = contentWidth - pWidth - 15;
+
+          if (totalEduTextWidth <= maxLeftEduWidth) {
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(10);
+            doc.setTextColor(colorHeading[0], colorHeading[1], colorHeading[2]);
+            doc.text(degreeText, margin, currentY);
+
+            doc.setFont("helvetica", "normal");
+            doc.setTextColor(colorMuted[0], colorMuted[1], colorMuted[2]);
+            doc.text(` — ${institutionText}`, margin + dWidth, currentY);
+
+            doc.setFont("helvetica", "italic");
+            doc.setFontSize(9);
+            doc.setTextColor(colorMuted[0], colorMuted[1], colorMuted[2]);
+            doc.text(periodText, pageWidth - margin - pWidth, currentY);
+            currentY += 14;
+          } else {
+            // Overlap risk: Split into structured lines
+            // Line 1: Degree in Bold
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(10);
+            doc.setTextColor(colorHeading[0], colorHeading[1], colorHeading[2]);
+
+            const degreeLines = doc.splitTextToSize(degreeText, contentWidth);
+            degreeLines.forEach((line: string) => {
+              if (currentY + 14 > pageHeight - margin) {
+                doc.addPage();
+                currentY = margin + 10;
+              }
+              doc.text(line, margin, currentY);
+              currentY += 13;
+            });
+
+            // Line 2: Institution & Period
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(9.5);
+            const instWidthOnly = doc.getTextWidth(institutionText);
+            const instAndPeriodFit = instWidthOnly + pWidth < contentWidth - 15;
+
+            if (currentY + 14 > pageHeight - margin) {
+              doc.addPage();
+              currentY = margin + 10;
+            }
+
+            if (instAndPeriodFit) {
+              doc.setFont("helvetica", "normal");
+              doc.setTextColor(colorMuted[0], colorMuted[1], colorMuted[2]);
+              doc.text(institutionText, margin, currentY);
+
+              doc.setFont("helvetica", "italic");
+              doc.setFontSize(9);
+              doc.setTextColor(colorMuted[0], colorMuted[1], colorMuted[2]);
+              doc.text(periodText, pageWidth - margin - pWidth, currentY);
+              currentY += 14;
+            } else {
+              // Extremely long institution, wrap it, then print period
+              doc.setFont("helvetica", "normal");
+              doc.setTextColor(colorMuted[0], colorMuted[1], colorMuted[2]);
+              
+              const instLines = doc.splitTextToSize(institutionText, contentWidth);
+              instLines.forEach((line: string) => {
+                if (currentY + 14 > pageHeight - margin) {
+                  doc.addPage();
+                  currentY = margin + 10;
+                }
+                doc.text(line, margin, currentY);
+                currentY += 13;
+              });
+
+              if (currentY + 14 > pageHeight - margin) {
+                doc.addPage();
+                currentY = margin + 10;
+              }
+              doc.setFont("helvetica", "italic");
+              doc.setFontSize(9);
+              doc.setTextColor(colorMuted[0], colorMuted[1], colorMuted[2]);
+              doc.text(periodText, margin, currentY);
+              currentY += 14;
+            }
+          }
+
+          if (edu.description) {
+            addText(edu.description, 9, "normal", 12.5);
+            currentY += 4;
+          }
+          currentY += 4;
+        });
+      }
+
+      // Skills
+      if (cv.skills && cv.skills.length > 0) {
+        addSectionHeader("HABILIDADES");
+        const skillsJoined = cv.skills.join("  •  ");
+        addText(skillsJoined, 9.5, "normal", 13.5);
+      }
+
+      // Projects
+      if (cv.projects && cv.projects.length > 0) {
+        addSectionHeader("PROYECTOS");
+
+        cv.projects.forEach((proj) => {
+          if (currentY + 30 > pageHeight - margin) {
+            doc.addPage();
+            currentY = margin + 10;
+          }
+
+          const projName = proj.name || "";
+          const projPeriod = proj.period || "";
+
+          // Measure to prevent overlapping
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(10);
+          const nWidth = doc.getTextWidth(projName);
+
+          doc.setFont("helvetica", "italic");
+          doc.setFontSize(9);
+          const pWidth = projPeriod ? doc.getTextWidth(projPeriod) : 0;
+
+          const maxLeftProjWidth = contentWidth - pWidth - 15;
+
+          if (!projPeriod || nWidth <= maxLeftProjWidth) {
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(10);
+            doc.setTextColor(colorHeading[0], colorHeading[1], colorHeading[2]);
+            doc.text(projName, margin, currentY);
+
+            if (projPeriod) {
+              doc.setFont("helvetica", "italic");
+              doc.setFontSize(9);
+              doc.setTextColor(colorMuted[0], colorMuted[1], colorMuted[2]);
+              doc.text(projPeriod, pageWidth - margin - pWidth, currentY);
+            }
+            currentY += 14;
+          } else {
+            // Overlap risk: Split into structured lines
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(10);
+            doc.setTextColor(colorHeading[0], colorHeading[1], colorHeading[2]);
+
+            const nameLines = doc.splitTextToSize(projName, contentWidth);
+            nameLines.forEach((line: string) => {
+              if (currentY + 14 > pageHeight - margin) {
+                doc.addPage();
+                currentY = margin + 10;
+              }
+              doc.text(line, margin, currentY);
+              currentY += 13;
+            });
+
+            if (currentY + 14 > pageHeight - margin) {
+              doc.addPage();
+              currentY = margin + 10;
+            }
+
+            doc.setFont("helvetica", "italic");
+            doc.setFontSize(9);
+            doc.setTextColor(colorMuted[0], colorMuted[1], colorMuted[2]);
+            doc.text(projPeriod, margin, currentY);
+            currentY += 14;
+          }
+
+          const bullets = proj.bullets || [];
+          bullets.forEach((bullet) => {
+            let cleanBullet = bullet.trim();
+            if (cleanBullet.startsWith("-") || cleanBullet.startsWith("•") || cleanBullet.startsWith("*")) {
+              cleanBullet = cleanBullet.substring(1).trim();
+            }
+
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(9.5);
+            doc.setTextColor(colorBody[0], colorBody[1], colorBody[2]);
+
+            const bulletLines = doc.splitTextToSize(cleanBullet, contentWidth - 18);
+            const bulletHeight = bulletLines.length * 13;
+            
+            if (currentY + bulletHeight > pageHeight - margin) {
+              doc.addPage();
+              currentY = margin + 10;
+            }
+
+            // Draw bullet character
+            doc.setTextColor(colorMuted[0], colorMuted[1], colorMuted[2]);
+            doc.text("•", margin + 8, currentY + 1.5);
+            doc.setTextColor(colorBody[0], colorBody[1], colorBody[2]);
+
+            bulletLines.forEach((line: string) => {
+              doc.text(line, margin + 18, currentY);
+              currentY += 13;
+            });
+          });
+          currentY += 4;
+        });
+      }
+
+      // Certifications
+      if (cv.certifications && cv.certifications.length > 0) {
+        addSectionHeader("CERTIFICACIONES");
+
+        cv.certifications.forEach((cert) => {
+          if (currentY + 14 > pageHeight - margin) {
+            doc.addPage();
+            currentY = margin + 10;
+          }
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(9.5);
+          doc.setTextColor(colorBody[0], colorBody[1], colorBody[2]);
+          
+          doc.setTextColor(colorMuted[0], colorMuted[1], colorMuted[2]);
+          doc.text("•", margin + 8, currentY);
+          doc.setTextColor(colorBody[0], colorBody[1], colorBody[2]);
+          
+          doc.text(cert, margin + 18, currentY);
+          currentY += 13;
+        });
+      }
+
+      doc.save(`CV_Optimizado_${cv.name.replace(/\s+/g, "_")}.pdf`);
+    } catch (e) {
+      console.error("Error al descargar PDF:", e);
+      alert("Hubo un error al generar tu PDF. Por favor intenta de nuevo.");
+    }
   };
 
-  const downloadDoc = () => {
-    if (!analysis) {
-      setVisualNote("Primero analiza tu CV para generar la version descargable.");
-      setScreen("upload");
+  const downloadDoc = async () => {
+    if (!currentAnalysis) return;
+
+    if (currentAnalysis.deliveryDecision && !currentAnalysis.deliveryDecision.allowDownload) {
+      setVisualNote(currentAnalysis.deliveryDecision.userMessage);
+      setScreen("diagnosis");
       return;
     }
 
-    const cv = currentAnalysis.improvedCV;
-    const content = [
-      cv.name,
-      cv.title,
-      cv.contact,
-      "",
-      "Resumen profesional",
-      cv.summary,
-      "",
-      "Experiencia",
-      ...cv.experience.flatMap((item) => [
-        `${item.role} · ${item.company} · ${item.period}`,
-        ...item.bullets.map((bullet) => `- ${bullet}`),
-      ]),
-      "",
-      "Educación",
-      ...cv.education.map((item) => `${item.degree} · ${item.institution} · ${item.period}`),
-      "",
-      "Habilidades",
-      cv.skills.join(", "),
-    ].join("\n");
+    try {
+      const {
+        Document,
+        Packer,
+        Paragraph,
+        TextRun,
+        AlignmentType,
+        BorderStyle,
+        Table,
+        TableRow,
+        TableCell,
+        WidthType
+      } = await import("docx");
 
-    const blob = new Blob([content], { type: "application/msword" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `CV_BlankATS_${(cv.name || "usuario").replace(/\s+/g, "_")}.doc`;
-    link.click();
-    URL.revokeObjectURL(url);
+      const cv = currentAnalysis.improvedCV;
+      const docChildren: any[] = [];
+
+      // Helper to create Section Header with a thin bottom line
+      const createSectionHeader = (title: string) => {
+        return new Paragraph({
+          spacing: { before: 300, after: 160 }, // 15pt before, 8pt after
+          border: {
+            bottom: {
+              color: "D1D5DB",
+              space: 6, // 6pt space
+              style: BorderStyle.SINGLE,
+              size: 6, // 0.75pt line thickness
+            }
+          },
+          children: [
+            new TextRun({
+              text: title.toUpperCase(),
+              bold: true,
+              size: 22, // 11pt
+              font: "Arial",
+              color: "0F172A",
+            })
+          ]
+        });
+      };
+
+      // Helper to create Body Paragraph
+      const createBodyParagraph = (text: string) => {
+        return new Paragraph({
+          spacing: { after: 120, line: 270 }, // 6pt after, 13.5pt line spacing
+          children: [
+            new TextRun({
+              text,
+              size: 19, // 9.5pt
+              font: "Arial",
+              color: "111827",
+            })
+          ]
+        });
+      };
+
+      // Helper to create right-aligned period rows using borderless table
+      const borderlessTableBorders = {
+        top: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+        bottom: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+        left: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+        right: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+        insideHorizontal: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+        insideVertical: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+      };
+
+      const createHeaderPeriodRow = (boldText: string, regularText: string, periodText: string, isFirst: boolean = false) => {
+        return new Table({
+          width: {
+            size: 100,
+            type: WidthType.PERCENTAGE,
+          },
+          borders: borderlessTableBorders,
+          rows: [
+            new TableRow({
+              children: [
+                new TableCell({
+                  width: { size: 75, type: WidthType.PERCENTAGE },
+                  margins: { top: 0, bottom: 0, left: 0, right: 0 },
+                  children: [
+                    new Paragraph({
+                      spacing: { before: isFirst ? 0 : 160, after: 60 },
+                      children: [
+                        new TextRun({
+                          text: boldText,
+                          bold: true,
+                          size: 20, // 10pt
+                          font: "Arial",
+                          color: "0F172A",
+                        }),
+                        regularText ? new TextRun({
+                          text: ` — ${regularText}`,
+                          size: 20, // 10pt
+                          font: "Arial",
+                          color: "374151",
+                        }) : new TextRun(""),
+                      ],
+                    }),
+                  ],
+                }),
+                new TableCell({
+                  width: { size: 25, type: WidthType.PERCENTAGE },
+                  margins: { top: 0, bottom: 0, left: 0, right: 0 },
+                  children: [
+                    new Paragraph({
+                      alignment: AlignmentType.RIGHT,
+                      spacing: { before: isFirst ? 0 : 160, after: 60 },
+                      children: [
+                        new TextRun({
+                          text: periodText,
+                          italics: true,
+                          size: 18, // 9pt
+                          font: "Arial",
+                          color: "374151",
+                        }),
+                      ],
+                    }),
+                  ],
+                }),
+              ],
+            }),
+          ],
+        });
+      };
+
+      // 1. Name
+      docChildren.push(
+        new Paragraph({
+          alignment: AlignmentType.LEFT,
+          spacing: { after: 120 },
+          children: [
+            new TextRun({
+              text: cv.name.toUpperCase(),
+              bold: true,
+              size: 44, // 22pt
+              font: "Arial",
+              color: "111827",
+            }),
+          ],
+        })
+      );
+
+      // 2. Title
+      if (cv.title) {
+        docChildren.push(
+          new Paragraph({
+            alignment: AlignmentType.LEFT,
+            spacing: { after: 80 },
+            children: [
+              new TextRun({
+                text: cv.title.toUpperCase(),
+                bold: true,
+                size: 23, // 11.5pt
+                font: "Arial",
+                color: "374151",
+              }),
+            ],
+          })
+        );
+      }
+
+      // 3. Contact
+      if (cv.contact) {
+        docChildren.push(
+          new Paragraph({
+            alignment: AlignmentType.LEFT,
+            spacing: { after: 200 },
+            children: [
+              new TextRun({
+                text: cv.contact,
+                size: 19, // 9.5pt
+                font: "Arial",
+                color: "374151",
+              }),
+            ],
+          })
+        );
+      }
+
+      // 4. Summary
+      if (cv.summary) {
+        docChildren.push(createSectionHeader("RESUMEN PROFESIONAL"));
+        docChildren.push(createBodyParagraph(cv.summary));
+      }
+
+      // 5. Experience
+      if (cv.experience && cv.experience.length > 0) {
+        docChildren.push(createSectionHeader("EXPERIENCIA LABORAL"));
+        cv.experience.forEach((exp, idx) => {
+          docChildren.push(createHeaderPeriodRow(exp.role || "", exp.company || "", exp.period || "", idx === 0));
+          
+          if (exp.description) {
+            docChildren.push(new Paragraph({
+              spacing: { after: 80, line: 270 },
+              children: [
+                new TextRun({
+                  text: exp.description,
+                  size: 19, // 9.5pt
+                  font: "Arial",
+                  color: "111827",
+                })
+              ]
+            }));
+          }
+
+          if (exp.bullets && exp.bullets.length > 0) {
+            exp.bullets.forEach((bullet) => {
+              let cleanBullet = bullet.trim();
+              if (cleanBullet.startsWith("-") || cleanBullet.startsWith("•") || cleanBullet.startsWith("*")) {
+                cleanBullet = cleanBullet.substring(1).trim();
+              }
+              docChildren.push(
+                new Paragraph({
+                  indent: { left: 360, hanging: 200 }, // left margin 18pt, bullet bullet starts at 8pt (160 twips)
+                  spacing: { after: 60, line: 270 }, // 3pt after, 13.5pt line spacing
+                  children: [
+                    new TextRun({
+                      text: "•\t",
+                      bold: true,
+                      size: 19, // 9.5pt
+                      font: "Arial",
+                      color: "374151",
+                    }),
+                    new TextRun({
+                      text: cleanBullet,
+                      size: 19, // 9.5pt
+                      font: "Arial",
+                      color: "111827",
+                    }),
+                  ],
+                })
+              );
+            });
+          }
+        });
+      }
+
+      // 6. Education
+      if (cv.education && cv.education.length > 0) {
+        docChildren.push(createSectionHeader("EDUCACIÓN"));
+        cv.education.forEach((edu, idx) => {
+          docChildren.push(createHeaderPeriodRow(edu.degree || "", edu.institution || "", edu.period || "", idx === 0));
+          
+          if (edu.description) {
+            docChildren.push(new Paragraph({
+              spacing: { after: 80, line: 250 },
+              children: [
+                new TextRun({
+                  text: edu.description,
+                  size: 18, // 9pt
+                  font: "Arial",
+                  color: "374151",
+                })
+              ]
+            }));
+          }
+        });
+      }
+
+      // 7. Skills
+      if (cv.skills && cv.skills.length > 0) {
+        docChildren.push(createSectionHeader("HABILIDADES"));
+        const skillsJoined = cv.skills.join("  •  ");
+        docChildren.push(createBodyParagraph(skillsJoined));
+      }
+
+      // 8. Projects
+      if (cv.projects && cv.projects.length > 0) {
+        docChildren.push(createSectionHeader("PROYECTOS"));
+        cv.projects.forEach((proj, idx) => {
+          docChildren.push(createHeaderPeriodRow(proj.name || "", "", proj.period || "", idx === 0));
+          
+          if (proj.description) {
+            docChildren.push(new Paragraph({
+              spacing: { after: 80, line: 270 },
+              children: [
+                new TextRun({
+                  text: proj.description,
+                  size: 19, // 9.5pt
+                  font: "Arial",
+                  color: "111827",
+                })
+              ]
+            }));
+          }
+
+          if (proj.bullets && proj.bullets.length > 0) {
+            proj.bullets.forEach((bullet) => {
+              let cleanBullet = bullet.trim();
+              if (cleanBullet.startsWith("-") || cleanBullet.startsWith("•") || cleanBullet.startsWith("*")) {
+                cleanBullet = cleanBullet.substring(1).trim();
+              }
+              docChildren.push(
+                new Paragraph({
+                  indent: { left: 360, hanging: 200 },
+                  spacing: { after: 60, line: 270 },
+                  children: [
+                    new TextRun({
+                      text: "•\t",
+                      bold: true,
+                      size: 19, // 9.5pt
+                      font: "Arial",
+                      color: "374151",
+                    }),
+                    new TextRun({
+                      text: cleanBullet,
+                      size: 19, // 9.5pt
+                      font: "Arial",
+                      color: "111827",
+                    }),
+                  ],
+                })
+              );
+            });
+          }
+        });
+      }
+
+      // 9. Certifications
+      if (cv.certifications && cv.certifications.length > 0) {
+        docChildren.push(createSectionHeader("CERTIFICACIONES"));
+        cv.certifications.forEach((cert) => {
+          docChildren.push(
+            new Paragraph({
+              indent: { left: 360, hanging: 200 },
+              spacing: { after: 60, line: 270 },
+              children: [
+                new TextRun({
+                  text: "•\t",
+                  bold: true,
+                  size: 19, // 9.5pt
+                  font: "Arial",
+                  color: "374151",
+                }),
+                new TextRun({
+                  text: cert,
+                  size: 19, // 9.5pt
+                  font: "Arial",
+                  color: "111827",
+                }),
+              ],
+            })
+          );
+        });
+      }
+
+      // Build Document
+      const doc = new Document({
+        sections: [
+          {
+            properties: {
+              page: {
+                margin: {
+                  top: 1000, // 50pt margin (matches PDF)
+                  right: 1000,
+                  bottom: 1000,
+                  left: 1000,
+                }
+              }
+            },
+            children: docChildren,
+          }
+        ]
+      });
+
+      const blob = await Packer.toBlob(doc);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `CV_Optimizado_${cv.name.replace(/\s+/g, "_")}.docx`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+
+    } catch (e) {
+      console.error("Error al descargar DOCX:", e);
+      alert("Hubo un error al generar tu documento Word. Por favor intenta de nuevo.");
+    }
   };
 
   const goHome = () => {
     setScreen("home");
     setAnalysis(null);
     setVisualNote(null);
-  };
-
-  const openPaywall = () => {
-    if (!analysis) {
-      setVisualNote("Primero sube o pega tu CV para generar una version mejorada.");
-      setScreen("upload");
-      return;
-    }
-
-    if (!analysis.deliveryDecision.allowDownload) {
-      setVisualNote(analysis.deliveryDecision.userMessage);
-      setScreen("diagnosis");
-      return;
-    }
-
-    setScreen("paywall");
-  };
-
-  const unlockImprovedCv = () => {
-    if (!analysis) {
-      setVisualNote("Primero analiza tu CV para generar la version descargable.");
-      setScreen("upload");
-      return;
-    }
-
-    if (!analysis.deliveryDecision.allowDownload) {
-      setVisualNote(analysis.deliveryDecision.userMessage);
-      setScreen("diagnosis");
-      return;
-    }
-
-    setScreen("success");
   };
 
   return (
@@ -513,11 +1274,11 @@ export default function HomePage() {
             analysis={currentAnalysis}
             note={visualNote}
             onBack={() => setScreen("upload")}
-            onUnlock={openPaywall}
+            onUnlock={() => setScreen("paywall")}
           />
         ) : null}
         {screen === "paywall" ? (
-          <PaywallScreen onBack={() => setScreen(analysis ? "diagnosis" : "home")} onUnlock={unlockImprovedCv} />
+          <PaywallScreen onBack={() => setScreen("diagnosis")} onUnlock={() => setScreen("success")} />
         ) : null}
         {screen === "success" ? (
           <SuccessScreen
@@ -554,27 +1315,27 @@ function LandingScreen({ onGo }: { onGo: (screen: Screen) => void }) {
     <ScreenShell>
       <SimpleHeader />
 
-      <section className="px-5 pt-9 text-center">
-        <h1 className="text-[41px] font-black leading-[1.02] tracking-[-0.035em] min-[390px]:text-[45px]">
+      <section className="px-5 pt-8 text-center">
+        <h1 className="text-[34px] font-black leading-[1.03] tracking-[-0.03em] min-[390px]:text-[37px]">
           Mejora tu CV
           <span className="block text-[#0068ff]">antes de enviarlo</span>
         </h1>
-        <p className="mx-auto mt-4 max-w-[365px] text-[16px] font-medium leading-7 text-[#626a79]">
+        <p className="mx-auto mt-3 max-w-[340px] text-[15px] font-medium leading-6 text-[#626a79]">
           Recibe un diagnóstico gratuito y desbloquea una versión profesional más clara, ordenada y lista para descargar.
         </p>
-        <button className="mt-6 flex h-[56px] w-full items-center justify-center gap-3 rounded-[11px] bg-[#0068ff] text-[18px] font-black text-white shadow-[0_12px_24px_rgba(0,104,255,0.24)] transition duration-200 hover:-translate-y-0.5 active:scale-[0.98]" onClick={() => onGo("upload")}>
+        <button className="mt-5 flex h-[54px] w-full items-center justify-center gap-3 rounded-[11px] bg-[#0068ff] text-[18px] font-black text-white shadow-[0_12px_24px_rgba(0,104,255,0.24)] transition duration-200 hover:-translate-y-0.5 active:scale-[0.98]" onClick={() => onGo("upload")}>
           <Sparkles className="h-5 w-5" />
           Analizar mi CV gratis
         </button>
       </section>
 
-      <section className="px-5 pt-7">
+      <section className="px-5 pt-6">
         <HomeScoreCard />
       </section>
 
-      <section className="px-5 pt-6">
+      <section className="px-5 pt-5">
         <h2 className="text-left text-[21px] font-black">Cómo funciona</h2>
-        <div className="mt-4 grid grid-cols-3 gap-2.5">
+        <div className="mt-3 grid grid-cols-1 gap-2.5">
           <HowStep icon={<Upload className="h-9 w-9" />} number="1" title="Sube tu CV">
             Carga tu PDF y nuestra IA lo analiza al instante.
           </HowStep>
@@ -588,7 +1349,7 @@ function LandingScreen({ onGo }: { onGo: (screen: Screen) => void }) {
       </section>
 
       <section className="px-5 pt-5">
-        <OfferCard onClick={() => onGo("upload")} />
+        <OfferCard onClick={() => onGo("paywall")} />
       </section>
 
       <ProtectedNote className="mt-4 pb-5" />
@@ -777,10 +1538,10 @@ function DiagnosisScreen({
       </section>
 
       <section className="px-5 pt-4 pb-5">
-        <div className="grid grid-cols-[132px_1fr] items-center gap-4 rounded-[16px] border border-[#e4e9f0] bg-white p-5 text-center shadow-[0_10px_26px_rgba(15,25,55,0.06)]">
-          <ProgressRing value={analysis.score || 78} mode="score" size={124} />
-          <div className="border-l border-[#e8edf4] pl-4 text-left">
-            <h2 className="text-[22px] font-black leading-tight">Buen potencial, pero hay áreas a mejorar.</h2>
+        <div className="grid grid-cols-1 items-center gap-4 rounded-[15px] border border-[#e4e9f0] bg-white p-4 text-center shadow-[0_10px_26px_rgba(15,25,55,0.06)]">
+          <ProgressRing value={analysis.score || 78} mode="score" size={116} />
+          <div className="border-t border-[#e8edf4] pt-4 text-left">
+            <h2 className="text-[21px] font-black leading-tight">Buen potencial, pero hay áreas a mejorar.</h2>
             <p className="mt-3 text-[15px] font-medium leading-6 text-[#626a79]">Tu CV tiene una base sólida. Con algunos ajustes, puedes aumentar su claridad, relevancia e impacto.</p>
           </div>
         </div>
@@ -801,7 +1562,7 @@ function DiagnosisScreen({
         </div>
 
         <SectionTitle number="3" title="Recomendaciones clave" />
-        <div className="grid grid-cols-3 gap-2.5">
+        <div className="grid grid-cols-1 gap-2.5">
           <RecoCard icon={<UserRound className="h-7 w-7" />} title="Mejora el resumen">Añade un resumen profesional claro que comunique tu valor.</RecoCard>
           <RecoCard icon={<BarChart3 className="h-7 w-7" />} title="Refuerza logros">Cuantifica resultados para demostrar el impacto de tu trabajo.</RecoCard>
           <RecoCard icon={<Search className="h-7 w-7" />} title="Optimiza palabras clave">Incluye términos relevantes para destacar.</RecoCard>
@@ -815,7 +1576,7 @@ function DiagnosisScreen({
           Desbloquear mi CV mejorado
         </button>
 
-        <div className="mt-4 grid grid-cols-3 divide-x divide-[#e2e8f0] rounded-[13px] border border-[#e7edf5] bg-white text-center text-[12px] font-medium text-[#626a79]">
+        <div className="mt-4 grid grid-cols-1 divide-y divide-[#e2e8f0] rounded-[13px] border border-[#e7edf5] bg-white text-center text-[13px] font-medium text-[#626a79]">
           <TrustItem icon={<FileDown className="h-7 w-7" />}>Pago único</TrustItem>
           <TrustItem icon={<FileText className="h-7 w-7" />}>Descarga en PDF</TrustItem>
           <TrustItem icon={<ShieldCheck className="h-7 w-7" />}>Pago seguro</TrustItem>
@@ -845,7 +1606,7 @@ function PaywallScreen({ onBack, onUnlock }: { onBack: () => void; onUnlock: () 
       </section>
 
       <section className="px-5 pt-4 pb-5">
-        <div className="grid grid-cols-[1fr_1.05fr] gap-4 rounded-[16px] border border-[#e4e9f0] bg-white p-4 shadow-[0_10px_26px_rgba(15,25,55,0.05)]">
+        <div className="grid grid-cols-1 gap-3 rounded-[16px] border border-[#e4e9f0] bg-white p-4 shadow-[0_10px_26px_rgba(15,25,55,0.05)]">
           <MiniCvLocked />
           <div className="text-left">
             <h2 className="text-[19px] font-black">Vista final protegida</h2>
@@ -921,7 +1682,9 @@ function SuccessScreen({
         <div className="flex items-center gap-3 rounded-[16px] border border-[#e4e9f0] bg-white p-4 shadow-[0_10px_26px_rgba(15,25,55,0.06)]">
           <PdfIcon large />
           <div className="min-w-0 flex-1 text-left">
-            <p className="truncate text-[18px] font-black min-[390px]:text-[20px]">CV_Josue_Bravo_BlankATS.pdf</p>
+            <p className="truncate text-[18px] font-black min-[390px]:text-[20px]">
+              CV_Optimizado_{(analysis?.improvedCV?.name || "usuario").replace(/\s+/g, "_")}.pdf
+            </p>
             <span className="mt-3 inline-flex items-center gap-2 rounded-full bg-[#dff8ec] px-3 py-1.5 text-[14px] font-black text-[#129853]">
               <CheckCircle2 className="h-5 w-5" />
               Generado
@@ -941,7 +1704,7 @@ function SuccessScreen({
         </div>
 
         <h2 className="mt-6 text-center text-[22px] font-black">Qué mejoramos</h2>
-        <div className="mt-4 grid grid-cols-3 gap-3">
+        <div className="mt-4 grid grid-cols-1 gap-3">
           <ImprovedCard icon={<FileText className="h-9 w-9" />} title="Resumen optimizado">Reescribimos tu perfil para hacerlo más claro, impactante y relevante.</ImprovedCard>
           <ImprovedCard icon={<BarChart3 className="h-9 w-9" />} title="Logros reforzados" tone="green">Destacamos tus resultados con métricas y verbos de alto impacto.</ImprovedCard>
           <ImprovedCard icon={<Layers3 className="h-9 w-9" />} title="Formato limpio" tone="purple">Diseño profesional, escaneable y optimizado para los ATS.</ImprovedCard>
@@ -1010,10 +1773,10 @@ function Badge({ children, icon }: { children: ReactNode; icon: ReactNode }) {
 
 function HomeScoreCard() {
   return (
-    <div className="grid grid-cols-[132px_1fr] items-center gap-4 rounded-[16px] border border-[#e4e9f0] bg-white p-5 shadow-[0_10px_26px_rgba(15,25,55,0.07)]">
-      <ProgressRing value={78} mode="score" size={124} />
-      <div className="border-l border-[#e8edf4] pl-4 text-left">
-        <h2 className="text-[23px] font-black">Buen potencial</h2>
+    <div className="grid grid-cols-1 items-center gap-4 rounded-[15px] border border-[#e4e9f0] bg-white p-4 shadow-[0_10px_26px_rgba(15,25,55,0.07)]">
+      <ProgressRing value={78} mode="score" size={112} />
+      <div className="border-t border-[#e8edf4] pt-4 text-left">
+        <h2 className="text-[22px] font-black">Buen potencial</h2>
         <span className="mt-2 inline-flex items-center gap-2 rounded-full bg-[#def8eb] px-3 py-1.5 text-[14px] font-black text-[#129853]">
           <CheckCircle2 className="h-5 w-5" />
           Análisis completado
@@ -1057,13 +1820,15 @@ function TinyIssue({ amber, blue: isBlue, icon, text }: { amber?: boolean; blue?
 
 function HowStep({ children, icon, number, title }: { children: ReactNode; icon: ReactNode; number: string; title: string }) {
   return (
-    <div className="text-center">
-      <div className="relative mx-auto grid h-[62px] w-[62px] shrink-0 place-items-center rounded-full bg-[#edf5ff] text-[#0068ff]">
+    <div className="flex items-center gap-3 rounded-[14px] border border-[#e4e9f0] bg-white p-3.5 text-left shadow-[0_8px_18px_rgba(15,25,55,0.045)]">
+      <div className="relative grid h-[56px] w-[56px] shrink-0 place-items-center rounded-full bg-[#edf5ff] text-[#0068ff]">
         <span className="absolute -left-1 -top-2 grid h-7 w-7 place-items-center rounded-full bg-[#0068ff] text-[16px] font-black text-white">{number}</span>
         {icon}
       </div>
-      <h3 className="mt-3 text-[13px] font-black leading-4 min-[390px]:text-[14px]">{title}</h3>
-      <p className="mt-1 text-[11px] font-medium leading-4 text-[#626a79] min-[390px]:text-[12px]">{children}</p>
+      <div>
+        <h3 className="text-[16px] font-black leading-5">{title}</h3>
+        <p className="mt-1 text-[13px] font-medium leading-5 text-[#626a79]">{children}</p>
+      </div>
     </div>
   );
 }
@@ -1194,11 +1959,11 @@ function Chip({ children, ok, warn }: { children: ReactNode; ok?: boolean; warn?
 
 function RecoCard({ children, icon, title }: { children: ReactNode; icon: ReactNode; title: string }) {
   return (
-    <div className="relative min-h-[142px] rounded-[12px] border border-[#e4e9f0] bg-white p-3 shadow-[0_8px_20px_rgba(15,25,55,0.05)]">
+    <div className="rounded-[11px] border border-[#e4e9f0] bg-white p-3.5 shadow-[0_8px_20px_rgba(15,25,55,0.05)]">
       <div className="grid h-10 w-10 place-items-center rounded-full bg-[#edf5ff] text-[#0068ff]">{icon}</div>
-      <h3 className="mt-3 text-[13px] font-black leading-4 min-[390px]:text-[14px]">{title}</h3>
-      <p className="mt-2 text-[11px] font-medium leading-4 text-[#626a79] min-[390px]:text-[12px]">{children}</p>
-      <ChevronRight className="absolute bottom-3 right-3 h-5 w-5 text-[#9ba4b2]" />
+      <h3 className="mt-3 text-[15px] font-black leading-5">{title}</h3>
+      <p className="mt-2 text-[13px] font-medium leading-5 text-[#626a79]">{children}</p>
+      <ChevronRight className="ml-auto mt-2 h-5 w-5 text-[#9ba4b2]" />
     </div>
   );
 }
@@ -1236,9 +2001,9 @@ function MiniCvLocked() {
 
 function TrustItem({ children, icon }: { children: ReactNode; icon: ReactNode }) {
   return (
-    <div className="flex min-h-[54px] flex-col items-center justify-center gap-1.5 px-2 py-2.5 text-[#626a79]">
+    <div className="flex min-h-[50px] items-center justify-center gap-3 px-4 py-2.5 text-[#626a79]">
       <span className="text-[#0068ff]">{icon}</span>
-      <span className="leading-4">{children}</span>
+      <span>{children}</span>
     </div>
   );
 }
@@ -1259,10 +2024,12 @@ function ImprovedCard({ children, icon, title, tone = "blue" }: { children: Reac
     purple: "bg-[#f1e9ff] text-[#9b47f0]",
   };
   return (
-    <div className="rounded-[14px] border border-[#e4e9f0] bg-white p-3 text-center shadow-[0_8px_20px_rgba(15,25,55,0.05)]">
-      <div className={`mx-auto grid h-12 w-12 place-items-center rounded-full ${colors[tone]}`}>{icon}</div>
-      <h3 className="mt-3 text-[13px] font-black leading-4 min-[390px]:text-[14px]">{title}</h3>
-      <p className="mt-2 text-[11px] font-medium leading-4 text-[#626a79] min-[390px]:text-[12px]">{children}</p>
+    <div className="flex items-center gap-3 rounded-[14px] border border-[#e4e9f0] bg-white p-3.5 text-left shadow-[0_8px_20px_rgba(15,25,55,0.05)]">
+      <div className={`grid h-12 w-12 shrink-0 place-items-center rounded-full ${colors[tone]}`}>{icon}</div>
+      <div>
+        <h3 className="text-[16px] font-black leading-5">{title}</h3>
+        <p className="mt-1.5 text-[13px] font-medium leading-5 text-[#626a79]">{children}</p>
+      </div>
     </div>
   );
 }

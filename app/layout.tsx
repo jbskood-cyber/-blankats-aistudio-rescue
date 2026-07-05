@@ -1,18 +1,24 @@
-import type {Metadata} from 'next';
-import './globals.css'; // Global styles
+import type { Metadata } from "next";
+import "./globals.css";
 
 export const metadata: Metadata = {
-  title: 'BlankATS V1 — Optimizador Profesional de CVs',
-  description: 'Convierte tu CV actual en una versión limpia, profesional, clara y fácil de revisar por reclutadores y sistemas de selección digital.',
+  title: "BlankATS - CV clarity studio",
+  description:
+    "Analiza tu CV y prepara una version mas clara, profesional y facil de revisar para procesos digitales.",
+  applicationName: "BlankATS",
+  openGraph: {
+    title: "BlankATS - CV clarity studio",
+    description:
+      "Mejora la estructura y presentacion de tu CV con un diagnostico claro y una vista previa descargable.",
+    siteName: "BlankATS",
+    type: "website",
+  },
 };
 
-export default function RootLayout({children}: {children: React.ReactNode}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="es">
-      <body className="font-sans antialiased bg-slate-50 text-slate-900 selection:bg-blue-100 selection:text-blue-900" suppressHydrationWarning>
-        {children}
-      </body>
+      <body suppressHydrationWarning>{children}</body>
     </html>
   );
 }
-
