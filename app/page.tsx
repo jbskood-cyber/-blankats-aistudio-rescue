@@ -554,27 +554,27 @@ function LandingScreen({ onGo }: { onGo: (screen: Screen) => void }) {
     <ScreenShell>
       <SimpleHeader />
 
-      <section className="px-5 pt-8 text-center">
-        <h1 className="text-[34px] font-black leading-[1.03] tracking-[-0.03em] min-[390px]:text-[37px]">
+      <section className="px-5 pt-9 text-center">
+        <h1 className="text-[41px] font-black leading-[1.02] tracking-[-0.035em] min-[390px]:text-[45px]">
           Mejora tu CV
           <span className="block text-[#0068ff]">antes de enviarlo</span>
         </h1>
-        <p className="mx-auto mt-3 max-w-[340px] text-[15px] font-medium leading-6 text-[#626a79]">
+        <p className="mx-auto mt-4 max-w-[365px] text-[16px] font-medium leading-7 text-[#626a79]">
           Recibe un diagnóstico gratuito y desbloquea una versión profesional más clara, ordenada y lista para descargar.
         </p>
-        <button className="mt-5 flex h-[54px] w-full items-center justify-center gap-3 rounded-[11px] bg-[#0068ff] text-[18px] font-black text-white shadow-[0_12px_24px_rgba(0,104,255,0.24)] transition duration-200 hover:-translate-y-0.5 active:scale-[0.98]" onClick={() => onGo("upload")}>
+        <button className="mt-6 flex h-[56px] w-full items-center justify-center gap-3 rounded-[11px] bg-[#0068ff] text-[18px] font-black text-white shadow-[0_12px_24px_rgba(0,104,255,0.24)] transition duration-200 hover:-translate-y-0.5 active:scale-[0.98]" onClick={() => onGo("upload")}>
           <Sparkles className="h-5 w-5" />
           Analizar mi CV gratis
         </button>
       </section>
 
-      <section className="px-5 pt-6">
+      <section className="px-5 pt-7">
         <HomeScoreCard />
       </section>
 
-      <section className="px-5 pt-5">
+      <section className="px-5 pt-6">
         <h2 className="text-left text-[21px] font-black">Cómo funciona</h2>
-        <div className="mt-3 grid grid-cols-1 gap-2.5">
+        <div className="mt-4 grid grid-cols-3 gap-2.5">
           <HowStep icon={<Upload className="h-9 w-9" />} number="1" title="Sube tu CV">
             Carga tu PDF y nuestra IA lo analiza al instante.
           </HowStep>
@@ -777,10 +777,10 @@ function DiagnosisScreen({
       </section>
 
       <section className="px-5 pt-4 pb-5">
-        <div className="grid grid-cols-1 items-center gap-4 rounded-[15px] border border-[#e4e9f0] bg-white p-4 text-center shadow-[0_10px_26px_rgba(15,25,55,0.06)]">
-          <ProgressRing value={analysis.score || 78} mode="score" size={116} />
-          <div className="border-t border-[#e8edf4] pt-4 text-left">
-            <h2 className="text-[21px] font-black leading-tight">Buen potencial, pero hay áreas a mejorar.</h2>
+        <div className="grid grid-cols-[132px_1fr] items-center gap-4 rounded-[16px] border border-[#e4e9f0] bg-white p-5 text-center shadow-[0_10px_26px_rgba(15,25,55,0.06)]">
+          <ProgressRing value={analysis.score || 78} mode="score" size={124} />
+          <div className="border-l border-[#e8edf4] pl-4 text-left">
+            <h2 className="text-[22px] font-black leading-tight">Buen potencial, pero hay áreas a mejorar.</h2>
             <p className="mt-3 text-[15px] font-medium leading-6 text-[#626a79]">Tu CV tiene una base sólida. Con algunos ajustes, puedes aumentar su claridad, relevancia e impacto.</p>
           </div>
         </div>
@@ -801,7 +801,7 @@ function DiagnosisScreen({
         </div>
 
         <SectionTitle number="3" title="Recomendaciones clave" />
-        <div className="grid grid-cols-1 gap-2.5">
+        <div className="grid grid-cols-3 gap-2.5">
           <RecoCard icon={<UserRound className="h-7 w-7" />} title="Mejora el resumen">Añade un resumen profesional claro que comunique tu valor.</RecoCard>
           <RecoCard icon={<BarChart3 className="h-7 w-7" />} title="Refuerza logros">Cuantifica resultados para demostrar el impacto de tu trabajo.</RecoCard>
           <RecoCard icon={<Search className="h-7 w-7" />} title="Optimiza palabras clave">Incluye términos relevantes para destacar.</RecoCard>
@@ -815,7 +815,7 @@ function DiagnosisScreen({
           Desbloquear mi CV mejorado
         </button>
 
-        <div className="mt-4 grid grid-cols-1 divide-y divide-[#e2e8f0] rounded-[13px] border border-[#e7edf5] bg-white text-center text-[13px] font-medium text-[#626a79]">
+        <div className="mt-4 grid grid-cols-3 divide-x divide-[#e2e8f0] rounded-[13px] border border-[#e7edf5] bg-white text-center text-[12px] font-medium text-[#626a79]">
           <TrustItem icon={<FileDown className="h-7 w-7" />}>Pago único</TrustItem>
           <TrustItem icon={<FileText className="h-7 w-7" />}>Descarga en PDF</TrustItem>
           <TrustItem icon={<ShieldCheck className="h-7 w-7" />}>Pago seguro</TrustItem>
@@ -845,7 +845,7 @@ function PaywallScreen({ onBack, onUnlock }: { onBack: () => void; onUnlock: () 
       </section>
 
       <section className="px-5 pt-4 pb-5">
-        <div className="grid grid-cols-1 gap-3 rounded-[16px] border border-[#e4e9f0] bg-white p-4 shadow-[0_10px_26px_rgba(15,25,55,0.05)]">
+        <div className="grid grid-cols-[1fr_1.05fr] gap-4 rounded-[16px] border border-[#e4e9f0] bg-white p-4 shadow-[0_10px_26px_rgba(15,25,55,0.05)]">
           <MiniCvLocked />
           <div className="text-left">
             <h2 className="text-[19px] font-black">Vista final protegida</h2>
@@ -941,7 +941,7 @@ function SuccessScreen({
         </div>
 
         <h2 className="mt-6 text-center text-[22px] font-black">Qué mejoramos</h2>
-        <div className="mt-4 grid grid-cols-1 gap-3">
+        <div className="mt-4 grid grid-cols-3 gap-3">
           <ImprovedCard icon={<FileText className="h-9 w-9" />} title="Resumen optimizado">Reescribimos tu perfil para hacerlo más claro, impactante y relevante.</ImprovedCard>
           <ImprovedCard icon={<BarChart3 className="h-9 w-9" />} title="Logros reforzados" tone="green">Destacamos tus resultados con métricas y verbos de alto impacto.</ImprovedCard>
           <ImprovedCard icon={<Layers3 className="h-9 w-9" />} title="Formato limpio" tone="purple">Diseño profesional, escaneable y optimizado para los ATS.</ImprovedCard>
@@ -1010,10 +1010,10 @@ function Badge({ children, icon }: { children: ReactNode; icon: ReactNode }) {
 
 function HomeScoreCard() {
   return (
-    <div className="grid grid-cols-1 items-center gap-4 rounded-[15px] border border-[#e4e9f0] bg-white p-4 shadow-[0_10px_26px_rgba(15,25,55,0.07)]">
-      <ProgressRing value={78} mode="score" size={112} />
-      <div className="border-t border-[#e8edf4] pt-4 text-left">
-        <h2 className="text-[22px] font-black">Buen potencial</h2>
+    <div className="grid grid-cols-[132px_1fr] items-center gap-4 rounded-[16px] border border-[#e4e9f0] bg-white p-5 shadow-[0_10px_26px_rgba(15,25,55,0.07)]">
+      <ProgressRing value={78} mode="score" size={124} />
+      <div className="border-l border-[#e8edf4] pl-4 text-left">
+        <h2 className="text-[23px] font-black">Buen potencial</h2>
         <span className="mt-2 inline-flex items-center gap-2 rounded-full bg-[#def8eb] px-3 py-1.5 text-[14px] font-black text-[#129853]">
           <CheckCircle2 className="h-5 w-5" />
           Análisis completado
@@ -1057,15 +1057,13 @@ function TinyIssue({ amber, blue: isBlue, icon, text }: { amber?: boolean; blue?
 
 function HowStep({ children, icon, number, title }: { children: ReactNode; icon: ReactNode; number: string; title: string }) {
   return (
-    <div className="flex items-center gap-3 rounded-[14px] border border-[#e4e9f0] bg-white p-3.5 text-left shadow-[0_8px_18px_rgba(15,25,55,0.045)]">
-      <div className="relative grid h-[56px] w-[56px] shrink-0 place-items-center rounded-full bg-[#edf5ff] text-[#0068ff]">
+    <div className="text-center">
+      <div className="relative mx-auto grid h-[62px] w-[62px] shrink-0 place-items-center rounded-full bg-[#edf5ff] text-[#0068ff]">
         <span className="absolute -left-1 -top-2 grid h-7 w-7 place-items-center rounded-full bg-[#0068ff] text-[16px] font-black text-white">{number}</span>
         {icon}
       </div>
-      <div>
-        <h3 className="text-[16px] font-black leading-5">{title}</h3>
-        <p className="mt-1 text-[13px] font-medium leading-5 text-[#626a79]">{children}</p>
-      </div>
+      <h3 className="mt-3 text-[13px] font-black leading-4 min-[390px]:text-[14px]">{title}</h3>
+      <p className="mt-1 text-[11px] font-medium leading-4 text-[#626a79] min-[390px]:text-[12px]">{children}</p>
     </div>
   );
 }
@@ -1196,11 +1194,11 @@ function Chip({ children, ok, warn }: { children: ReactNode; ok?: boolean; warn?
 
 function RecoCard({ children, icon, title }: { children: ReactNode; icon: ReactNode; title: string }) {
   return (
-    <div className="rounded-[11px] border border-[#e4e9f0] bg-white p-3.5 shadow-[0_8px_20px_rgba(15,25,55,0.05)]">
+    <div className="relative min-h-[142px] rounded-[12px] border border-[#e4e9f0] bg-white p-3 shadow-[0_8px_20px_rgba(15,25,55,0.05)]">
       <div className="grid h-10 w-10 place-items-center rounded-full bg-[#edf5ff] text-[#0068ff]">{icon}</div>
-      <h3 className="mt-3 text-[15px] font-black leading-5">{title}</h3>
-      <p className="mt-2 text-[13px] font-medium leading-5 text-[#626a79]">{children}</p>
-      <ChevronRight className="ml-auto mt-2 h-5 w-5 text-[#9ba4b2]" />
+      <h3 className="mt-3 text-[13px] font-black leading-4 min-[390px]:text-[14px]">{title}</h3>
+      <p className="mt-2 text-[11px] font-medium leading-4 text-[#626a79] min-[390px]:text-[12px]">{children}</p>
+      <ChevronRight className="absolute bottom-3 right-3 h-5 w-5 text-[#9ba4b2]" />
     </div>
   );
 }
@@ -1238,9 +1236,9 @@ function MiniCvLocked() {
 
 function TrustItem({ children, icon }: { children: ReactNode; icon: ReactNode }) {
   return (
-    <div className="flex min-h-[50px] items-center justify-center gap-3 px-4 py-2.5 text-[#626a79]">
+    <div className="flex min-h-[54px] flex-col items-center justify-center gap-1.5 px-2 py-2.5 text-[#626a79]">
       <span className="text-[#0068ff]">{icon}</span>
-      <span>{children}</span>
+      <span className="leading-4">{children}</span>
     </div>
   );
 }
@@ -1261,12 +1259,10 @@ function ImprovedCard({ children, icon, title, tone = "blue" }: { children: Reac
     purple: "bg-[#f1e9ff] text-[#9b47f0]",
   };
   return (
-    <div className="flex items-center gap-3 rounded-[14px] border border-[#e4e9f0] bg-white p-3.5 text-left shadow-[0_8px_20px_rgba(15,25,55,0.05)]">
-      <div className={`grid h-12 w-12 shrink-0 place-items-center rounded-full ${colors[tone]}`}>{icon}</div>
-      <div>
-        <h3 className="text-[16px] font-black leading-5">{title}</h3>
-        <p className="mt-1.5 text-[13px] font-medium leading-5 text-[#626a79]">{children}</p>
-      </div>
+    <div className="rounded-[14px] border border-[#e4e9f0] bg-white p-3 text-center shadow-[0_8px_20px_rgba(15,25,55,0.05)]">
+      <div className={`mx-auto grid h-12 w-12 place-items-center rounded-full ${colors[tone]}`}>{icon}</div>
+      <h3 className="mt-3 text-[13px] font-black leading-4 min-[390px]:text-[14px]">{title}</h3>
+      <p className="mt-2 text-[11px] font-medium leading-4 text-[#626a79] min-[390px]:text-[12px]">{children}</p>
     </div>
   );
 }
