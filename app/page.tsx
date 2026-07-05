@@ -233,6 +233,36 @@ function sanitizeImprovedCV(cv: unknown): ImprovedCV {
   };
 }
 
+function buildCvRenderModel(improvedCV: ImprovedCV) {
+  return {
+    name: improvedCV.name || "",
+    title: improvedCV.title || "",
+    contact: improvedCV.contact || "",
+    summary: improvedCV.summary || "",
+    experience: (improvedCV.experience || []).map(exp => ({
+      company: exp.company || "",
+      role: exp.role || "",
+      period: exp.period || "",
+      bullets: exp.bullets || [],
+      description: exp.description || "",
+    })),
+    education: (improvedCV.education || []).map(edu => ({
+      institution: edu.institution || "",
+      degree: edu.degree || "",
+      period: edu.period || "",
+      description: edu.description || "",
+    })),
+    skills: improvedCV.skills || [],
+    projects: (improvedCV.projects || []).map(proj => ({
+      name: proj.name || "",
+      bullets: proj.bullets || [],
+      period: proj.period || "",
+      description: proj.description || "",
+    })),
+    certifications: improvedCV.certifications || [],
+  };
+}
+
 export default function HomePage() {
   const [screen, setScreen] = useState<Screen>("home");
   const [inputMode, setInputMode] = useState<InputMode>("pdf");
@@ -604,7 +634,7 @@ export default function HomePage() {
         currentY += 12;
       };
 
-      const cv = currentAnalysis.improvedCV;
+      const cv = buildCvRenderModel(currentAnalysis.improvedCV);
 
       // Name (Main Header)
       doc.setFont("helvetica", "bold");
@@ -654,11 +684,22 @@ export default function HomePage() {
         });
       }
 
-      currentY += 5;
-
       // Professional Summary
       if (cv.summary) {
-        addSectionHeader("RESUMEN PROFESIONAL");
+        if (currentY + 20 > pageHeight - margin) {
+          doc.addPage();
+          currentY = margin + 10;
+        } else {
+          currentY += 4; // reduced from 15 (5 + 10) to 4 for tight, neat spacing between contact text and the divider line
+        }
+        
+        // Solid thin gray line (similar to section header line)
+        doc.setDrawColor(colorLine[0], colorLine[1], colorLine[2]);
+        doc.setLineWidth(0.75);
+        const summaryLineY = currentY - 6;
+        doc.line(margin, summaryLineY, pageWidth - margin, summaryLineY);
+        currentY += 8; // Keep the same currentY adjustment so that the text of the summary starts exactly where it did before!
+
         addText(cv.summary, 9.5, "normal", 13.5);
       }
 
@@ -1076,25 +1117,20 @@ export default function HomePage() {
         Packer,
         Paragraph,
         TextRun,
-        AlignmentType,
-        BorderStyle,
-        Table,
-        TableRow,
-        TableCell,
-        WidthType
+        BorderStyle
       } = await import("docx");
 
-      const cv = currentAnalysis.improvedCV;
+      const cv = buildCvRenderModel(currentAnalysis.improvedCV);
       const docChildren: any[] = [];
 
       // Helper to create Section Header with a thin bottom line
       const createSectionHeader = (title: string) => {
         return new Paragraph({
-          spacing: { before: 300, after: 160 }, // 15pt before, 8pt after
+          spacing: { before: 200, after: 120 },
           border: {
             bottom: {
               color: "D1D5DB",
-              space: 6, // 6pt space
+              space: 4,
               style: BorderStyle.SINGLE,
               size: 6, // 0.75pt line thickness
             }
@@ -1111,95 +1147,10 @@ export default function HomePage() {
         });
       };
 
-      // Helper to create Body Paragraph
-      const createBodyParagraph = (text: string) => {
-        return new Paragraph({
-          spacing: { after: 120, line: 270 }, // 6pt after, 13.5pt line spacing
-          children: [
-            new TextRun({
-              text,
-              size: 19, // 9.5pt
-              font: "Arial",
-              color: "111827",
-            })
-          ]
-        });
-      };
-
-      // Helper to create right-aligned period rows using borderless table
-      const borderlessTableBorders = {
-        top: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
-        bottom: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
-        left: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
-        right: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
-        insideHorizontal: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
-        insideVertical: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
-      };
-
-      const createHeaderPeriodRow = (boldText: string, regularText: string, periodText: string, isFirst: boolean = false) => {
-        return new Table({
-          width: {
-            size: 100,
-            type: WidthType.PERCENTAGE,
-          },
-          borders: borderlessTableBorders,
-          rows: [
-            new TableRow({
-              children: [
-                new TableCell({
-                  width: { size: 75, type: WidthType.PERCENTAGE },
-                  margins: { top: 0, bottom: 0, left: 0, right: 0 },
-                  children: [
-                    new Paragraph({
-                      spacing: { before: isFirst ? 0 : 160, after: 60 },
-                      children: [
-                        new TextRun({
-                          text: boldText,
-                          bold: true,
-                          size: 20, // 10pt
-                          font: "Arial",
-                          color: "0F172A",
-                        }),
-                        regularText ? new TextRun({
-                          text: ` — ${regularText}`,
-                          size: 20, // 10pt
-                          font: "Arial",
-                          color: "374151",
-                        }) : new TextRun(""),
-                      ],
-                    }),
-                  ],
-                }),
-                new TableCell({
-                  width: { size: 25, type: WidthType.PERCENTAGE },
-                  margins: { top: 0, bottom: 0, left: 0, right: 0 },
-                  children: [
-                    new Paragraph({
-                      alignment: AlignmentType.RIGHT,
-                      spacing: { before: isFirst ? 0 : 160, after: 60 },
-                      children: [
-                        new TextRun({
-                          text: periodText,
-                          italics: true,
-                          size: 18, // 9pt
-                          font: "Arial",
-                          color: "374151",
-                        }),
-                      ],
-                    }),
-                  ],
-                }),
-              ],
-            }),
-          ],
-        });
-      };
-
       // 1. Name
       docChildren.push(
         new Paragraph({
-          alignment: AlignmentType.LEFT,
-          spacing: { after: 120 },
+          spacing: { before: 0, after: 120 },
           children: [
             new TextRun({
               text: cv.name.toUpperCase(),
@@ -1216,8 +1167,7 @@ export default function HomePage() {
       if (cv.title) {
         docChildren.push(
           new Paragraph({
-            alignment: AlignmentType.LEFT,
-            spacing: { after: 80 },
+            spacing: { before: 0, after: 80 },
             children: [
               new TextRun({
                 text: cv.title.toUpperCase(),
@@ -1235,8 +1185,7 @@ export default function HomePage() {
       if (cv.contact) {
         docChildren.push(
           new Paragraph({
-            alignment: AlignmentType.LEFT,
-            spacing: { after: 200 },
+            spacing: { before: 0, after: 100 },
             children: [
               new TextRun({
                 text: cv.contact,
@@ -1251,15 +1200,110 @@ export default function HomePage() {
 
       // 4. Summary
       if (cv.summary) {
-        docChildren.push(createSectionHeader("RESUMEN PROFESIONAL"));
-        docChildren.push(createBodyParagraph(cv.summary));
+        docChildren.push(
+          new Paragraph({
+            spacing: { before: 40, after: 60 },
+            border: {
+              bottom: {
+                color: "D1D5DB",
+                space: 4,
+                style: BorderStyle.SINGLE,
+                size: 6, // 0.75pt line thickness
+              }
+            }
+          })
+        );
+        docChildren.push(
+          new Paragraph({
+            spacing: { before: 100, after: 240, line: 270 }, // 13.5pt line spacing
+            children: [
+              new TextRun({
+                text: cv.summary,
+                size: 19, // 9.5pt
+                font: "Arial",
+                color: "111827",
+              })
+            ]
+          })
+        );
       }
 
       // 5. Experience
       if (cv.experience && cv.experience.length > 0) {
         docChildren.push(createSectionHeader("EXPERIENCIA LABORAL"));
         cv.experience.forEach((exp, idx) => {
-          docChildren.push(createHeaderPeriodRow(exp.role || "", exp.company || "", exp.period || "", idx === 0));
+          const roleText = exp.role || "";
+          const companyText = exp.company || "";
+          const periodText = exp.period || "";
+          
+          const fullHeaderString = `${roleText} — ${companyText} | ${periodText}`;
+          const fitOnSingleLine = fullHeaderString.length <= 70;
+          const isFirst = idx === 0;
+
+          if (fitOnSingleLine) {
+            docChildren.push(
+              new Paragraph({
+                spacing: { before: isFirst ? 120 : 180, after: 60 },
+                children: [
+                  new TextRun({
+                    text: roleText,
+                    bold: true,
+                    size: 20, // 10pt
+                    font: "Arial",
+                    color: "0F172A",
+                  }),
+                  new TextRun({
+                    text: ` — ${companyText}`,
+                    size: 20, // 10pt
+                    font: "Arial",
+                    color: "374151",
+                  }),
+                  new TextRun({
+                    text: ` | ${periodText}`,
+                    italics: true,
+                    size: 18, // 9pt
+                    font: "Arial",
+                    color: "374151",
+                  }),
+                ],
+              })
+            );
+          } else {
+            docChildren.push(
+              new Paragraph({
+                spacing: { before: isFirst ? 120 : 180, after: 20 },
+                children: [
+                  new TextRun({
+                    text: roleText,
+                    bold: true,
+                    size: 20, // 10pt
+                    font: "Arial",
+                    color: "0F172A",
+                  }),
+                  new TextRun({
+                    text: ` — ${companyText}`,
+                    size: 20, // 10pt
+                    font: "Arial",
+                    color: "374151",
+                  }),
+                ],
+              })
+            );
+            docChildren.push(
+              new Paragraph({
+                spacing: { before: 0, after: 60 },
+                children: [
+                  new TextRun({
+                    text: periodText,
+                    italics: true,
+                    size: 18, // 9pt
+                    font: "Arial",
+                    color: "374151",
+                  }),
+                ],
+              })
+            );
+          }
           
           if (exp.description) {
             docChildren.push(new Paragraph({
@@ -1283,8 +1327,8 @@ export default function HomePage() {
               }
               docChildren.push(
                 new Paragraph({
-                  indent: { left: 360, hanging: 200 }, // left margin 18pt, bullet bullet starts at 8pt (160 twips)
-                  spacing: { after: 60, line: 270 }, // 3pt after, 13.5pt line spacing
+                  indent: { left: 360, hanging: 200 },
+                  spacing: { after: 60, line: 270 },
                   children: [
                     new TextRun({
                       text: "•\t",
@@ -1311,7 +1355,78 @@ export default function HomePage() {
       if (cv.education && cv.education.length > 0) {
         docChildren.push(createSectionHeader("EDUCACIÓN"));
         cv.education.forEach((edu, idx) => {
-          docChildren.push(createHeaderPeriodRow(edu.degree || "", edu.institution || "", edu.period || "", idx === 0));
+          const degreeText = edu.degree || "";
+          const institutionText = edu.institution || "";
+          const periodText = edu.period || "";
+          
+          const fullHeaderString = `${degreeText} — ${institutionText} | ${periodText}`;
+          const fitOnSingleLine = fullHeaderString.length <= 70;
+          const isFirst = idx === 0;
+
+          if (fitOnSingleLine) {
+            docChildren.push(
+              new Paragraph({
+                spacing: { before: isFirst ? 120 : 180, after: 60 },
+                children: [
+                  new TextRun({
+                    text: degreeText,
+                    bold: true,
+                    size: 20, // 10pt
+                    font: "Arial",
+                    color: "0F172A",
+                  }),
+                  new TextRun({
+                    text: ` — ${institutionText}`,
+                    size: 20, // 10pt
+                    font: "Arial",
+                    color: "374151",
+                  }),
+                  new TextRun({
+                    text: ` | ${periodText}`,
+                    italics: true,
+                    size: 18, // 9pt
+                    font: "Arial",
+                    color: "374151",
+                  }),
+                ],
+              })
+            );
+          } else {
+            docChildren.push(
+              new Paragraph({
+                spacing: { before: isFirst ? 120 : 180, after: 20 },
+                children: [
+                  new TextRun({
+                    text: degreeText,
+                    bold: true,
+                    size: 20, // 10pt
+                    font: "Arial",
+                    color: "0F172A",
+                  }),
+                  new TextRun({
+                    text: ` — ${institutionText}`,
+                    size: 20, // 10pt
+                    font: "Arial",
+                    color: "374151",
+                  }),
+                ],
+              })
+            );
+            docChildren.push(
+              new Paragraph({
+                spacing: { before: 0, after: 60 },
+                children: [
+                  new TextRun({
+                    text: periodText,
+                    italics: true,
+                    size: 18, // 9pt
+                    font: "Arial",
+                    color: "374151",
+                  }),
+                ],
+              })
+            );
+          }
           
           if (edu.description) {
             docChildren.push(new Paragraph({
@@ -1333,14 +1448,86 @@ export default function HomePage() {
       if (cv.skills && cv.skills.length > 0) {
         docChildren.push(createSectionHeader("HABILIDADES"));
         const skillsJoined = cv.skills.join("  •  ");
-        docChildren.push(createBodyParagraph(skillsJoined));
+        docChildren.push(
+          new Paragraph({
+            spacing: { before: 120, after: 120, line: 270 },
+            children: [
+              new TextRun({
+                text: skillsJoined,
+                size: 19, // 9.5pt
+                font: "Arial",
+                color: "111827",
+              })
+            ]
+          })
+        );
       }
 
       // 8. Projects
       if (cv.projects && cv.projects.length > 0) {
         docChildren.push(createSectionHeader("PROYECTOS"));
         cv.projects.forEach((proj, idx) => {
-          docChildren.push(createHeaderPeriodRow(proj.name || "", "", proj.period || "", idx === 0));
+          const projName = proj.name || "";
+          const projPeriod = proj.period || "";
+          
+          const fullHeaderString = projPeriod ? `${projName} | ${projPeriod}` : projName;
+          const fitOnSingleLine = fullHeaderString.length <= 70;
+          const isFirst = idx === 0;
+
+          if (fitOnSingleLine) {
+            docChildren.push(
+              new Paragraph({
+                spacing: { before: isFirst ? 120 : 180, after: 60 },
+                children: [
+                  new TextRun({
+                    text: projName,
+                    bold: true,
+                    size: 20, // 10pt
+                    font: "Arial",
+                    color: "0F172A",
+                  }),
+                  projPeriod ? new TextRun({
+                    text: ` | ${projPeriod}`,
+                    italics: true,
+                    size: 18, // 9pt
+                    font: "Arial",
+                    color: "374151",
+                  }) : new TextRun(""),
+                ],
+              })
+            );
+          } else {
+            docChildren.push(
+              new Paragraph({
+                spacing: { before: isFirst ? 120 : 180, after: 20 },
+                children: [
+                  new TextRun({
+                    text: projName,
+                    bold: true,
+                    size: 20, // 10pt
+                    font: "Arial",
+                    color: "0F172A",
+                  }),
+                ],
+              })
+            );
+            if (projPeriod) {
+              docChildren.push(
+                new Paragraph({
+                  spacing: { before: 0, after: 60 },
+                  children: [
+                    new TextRun({
+                      text: projPeriod,
+                      italics: true,
+                      size: 18, // 9pt
+                      font: "Arial",
+                      color: "374151",
+                    }),
+                  ],
+                })
+              );
+            }
+          }
           
           if (proj.description) {
             docChildren.push(new Paragraph({

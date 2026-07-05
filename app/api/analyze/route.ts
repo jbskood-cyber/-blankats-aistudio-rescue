@@ -125,12 +125,12 @@ ${originalText ? `"""\n${originalText}\n"""` : "(Ver archivo PDF adjunto)"}
 `,
     });
 
-    // Define the models to try in case of transient errors, prioritizing the highly reliable gemini-3.5-flash
-    const modelsToTry = ["gemini-3.5-flash", "gemini-flash-latest"];
+    // Define the models to try in case of transient errors, prioritizing the highly reliable and high-quota gemini-2.5-flash
+    const modelsToTry = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-3.5-flash", "gemini-3.1-flash-lite"];
     let response: Awaited<ReturnType<typeof ai.models.generateContent>> | undefined;
     let lastError: unknown = null;
     let attempt = 0;
-    const maxAttempts = 3;
+    const maxAttempts = 5;
 
     while (attempt < maxAttempts) {
       // Determine which model to use on this attempt
