@@ -325,6 +325,14 @@ export default function HomePage() {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const analyzingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Mercado Pago & Supabase Integration States
+  const [orderId, setOrderId] = useState<string | null>(null);
+  const [orderStatus, setOrderStatus] = useState<string | null>(null);
+  const [loadingOrder, setLoadingOrder] = useState(false);
+  const [orderError, setOrderError] = useState<string | null>(null);
+  const [isCheckingOut, setIsCheckingOut] = useState(false);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
+
   const isDemoMode = typeof process !== "undefined" && process.env.NEXT_PUBLIC_DEMO_MODE === "true";
   const currentAnalysis = analysis ?? (isDemoMode ? demoAnalysis : null);
   const currentFileName = file?.name || "mi-cv.pdf";
@@ -343,11 +351,150 @@ export default function HomePage() {
     };
   }, []);
 
+  // Check for orderId in search params on mount
   useEffect(() => {
-    if (!currentAnalysis && (screen === "diagnosis" || screen === "paywall" || screen === "success")) {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const queryOrderId = params.get("orderId");
+      const queryStatus = params.get("status");
+
+      if (queryOrderId) {
+        setOrderId(queryOrderId);
+        setLoadingOrder(true);
+        setScreen("success");
+
+        const fetchOrder = () => {
+          fetch(`/api/orders/${queryOrderId}`)
+            .then((res) => {
+              if (!res.ok) throw new Error("No se pudo obtener la orden.");
+              return res.json();
+            })
+            .then((orderData) => {
+              setOrderStatus(orderData.status);
+              if (orderData.status === "approved" && orderData.analysis && orderData.improvedCV) {
+                setAnalysis({
+                  qualityStatus: orderData.analysis.qualityStatus,
+                  processingMode: orderData.analysis.processingMode,
+                  recommendedAction: orderData.analysis.recommendedAction,
+                  score: orderData.analysis.score,
+                  extractionWarnings: orderData.analysis.extractionWarnings || [],
+                  dataIntegrityWarnings: orderData.analysis.dataIntegrityWarnings || [],
+                  problems: orderData.analysis.problems || [],
+                  missingSections: orderData.analysis.missingSections || [],
+                  diagnosis: orderData.analysis.diagnosis,
+                  recommendations: orderData.analysis.recommendations || [],
+                  deliveryDecision: {
+                    allowDownload: true,
+                    showWarningBeforeDownload: false,
+                    userMessage: "Pago aprobado. Descarga disponible.",
+                  },
+                  improvedCV: orderData.improvedCV,
+                });
+                setFile({ name: orderData.original_file_name || "mi-cv.pdf" } as File);
+                setScreen("success");
+              } else if (orderData.status === "pending") {
+                setScreen("success");
+              } else {
+                setScreen("paywall");
+                setOrderError("El pago no fue aprobado o fue cancelado. Por favor, intenta de nuevo.");
+              }
+            })
+            .catch((err) => {
+              console.error("Error loading order:", err);
+              setOrderError("Error al cargar los datos del pago.");
+              setScreen("paywall");
+            })
+            .finally(() => {
+              setLoadingOrder(false);
+            });
+        };
+
+        fetchOrder();
+      }
+    }
+  }, []);
+
+  const refreshOrder = async () => {
+    if (!orderId) return;
+    setLoadingOrder(true);
+    setOrderError(null);
+    try {
+      const res = await fetch(`/api/orders/${orderId}`);
+      if (!res.ok) throw new Error("Error checking status");
+      const orderData = await res.json();
+      setOrderStatus(orderData.status);
+      if (orderData.status === "approved" && orderData.analysis && orderData.improvedCV) {
+        setAnalysis({
+          qualityStatus: orderData.analysis.qualityStatus,
+          processingMode: orderData.analysis.processingMode,
+          recommendedAction: orderData.analysis.recommendedAction,
+          score: orderData.analysis.score,
+          extractionWarnings: orderData.analysis.extractionWarnings || [],
+          dataIntegrityWarnings: orderData.analysis.dataIntegrityWarnings || [],
+          problems: orderData.analysis.problems || [],
+          missingSections: orderData.analysis.missingSections || [],
+          diagnosis: orderData.analysis.diagnosis,
+          recommendations: orderData.analysis.recommendations || [],
+          deliveryDecision: {
+            allowDownload: true,
+            showWarningBeforeDownload: false,
+            userMessage: "Pago aprobado. Descarga disponible.",
+          },
+          improvedCV: orderData.improvedCV,
+        });
+        setFile({ name: orderData.original_file_name || "mi-cv.pdf" } as File);
+        setScreen("success");
+      } else if (orderData.status === "rejected") {
+        setScreen("paywall");
+        setOrderError("El pago fue rechazado. Intenta de nuevo.");
+      }
+    } catch (err) {
+      console.error(err);
+      setOrderError("No se pudo verificar el estado en este momento.");
+    } finally {
+      setLoadingOrder(false);
+    }
+  };
+
+  const handleCheckout = async () => {
+    if (!currentAnalysis) return;
+    setIsCheckingOut(true);
+    setCheckoutError(null);
+    try {
+      const response = await fetch("/api/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          analysis: currentAnalysis,
+          improvedCV: currentAnalysis.improvedCV,
+          fileName: currentFileName,
+          customerEmail: currentAnalysis.improvedCV?.contact || "",
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("No se pudo iniciar el proceso de pago.");
+      }
+
+      const data = await response.json();
+      if (data.init_point) {
+        window.location.href = data.init_point;
+      } else {
+        throw new Error("No se recibió el punto de inicio de pago.");
+      }
+    } catch (err: any) {
+      console.error("Checkout error:", err);
+      setCheckoutError(err.message || "Error al conectar con la pasarela de pagos.");
+    } finally {
+      setIsCheckingOut(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!currentAnalysis && !loadingOrder && (screen === "diagnosis" || screen === "paywall" || screen === "success")) {
       setScreen("upload");
     }
-  }, [screen, currentAnalysis]);
+  }, [screen, currentAnalysis, loadingOrder]);
 
   const acceptFile = (selectedFile: File) => {
     if (selectedFile.type !== "application/pdf") {
@@ -1857,15 +2004,23 @@ export default function HomePage() {
           />
         ) : null}
         {screen === "paywall" ? (
-          <PaywallScreen onBack={() => setScreen("diagnosis")} onUnlock={() => setScreen("success")} />
+          <PaywallScreen 
+            onBack={() => setScreen("diagnosis")} 
+            onUnlock={handleCheckout} 
+            isCheckingOut={isCheckingOut}
+            error={checkoutError || orderError}
+          />
         ) : null}
-        {screen === "success" && currentAnalysis ? (
+        {screen === "success" && (currentAnalysis || loadingOrder) ? (
           <SuccessScreen
             analysis={currentAnalysis}
             fileName={currentFileName}
             onDoc={downloadDoc}
             onHome={goHome}
             onPdf={downloadPDF}
+            orderStatus={orderStatus}
+            loadingOrder={loadingOrder}
+            onRefreshOrder={refreshOrder}
           />
         ) : null}
       </div>
@@ -2453,7 +2608,17 @@ function DiagnosisScreen({
   );
 }
 
-function PaywallScreen({ onBack, onUnlock }: { onBack: () => void; onUnlock: () => void }) {
+function PaywallScreen({ 
+  onBack, 
+  onUnlock,
+  isCheckingOut = false,
+  error = null
+}: { 
+  onBack: () => void; 
+  onUnlock: () => void;
+  isCheckingOut?: boolean;
+  error?: string | null;
+}) {
   const reduced = usePrefersReducedMotion();
   const stagger = animStagger(reduced);
   const fadeUp = animFadeUp(reduced);
@@ -2464,6 +2629,15 @@ function PaywallScreen({ onBack, onUnlock }: { onBack: () => void; onUnlock: () 
         <motion.div variants={fadeUp}>
           <BackHeader onBack={onBack} />
         </motion.div>
+
+        {error && (
+          <motion.section variants={fadeUp} className="px-5">
+            <div className="rounded-[10px] bg-red-50 border border-red-100 p-3.5 text-center text-[13px] font-semibold text-red-600 flex items-center justify-center gap-2">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              <span>{error}</span>
+            </div>
+          </motion.section>
+        )}
 
         <motion.section variants={fadeUp} className="px-5 pt-1.5 text-center">
           <h1 className="text-[28px] font-black leading-[1.1] tracking-[-0.035em] min-[390px]:text-[31px]">
@@ -2506,14 +2680,27 @@ function PaywallScreen({ onBack, onUnlock }: { onBack: () => void; onUnlock: () 
             </div>
             <p className="mt-0.5 text-[13.5px] font-medium text-[#626a79]">Pago único · Sin suscripciones</p>
             <motion.button 
-              className="mt-3 flex h-[48px] w-full items-center justify-center gap-2.5 rounded-[9px] bg-[#0068ff] text-[15px] font-black text-white shadow-[0_10px_20px_rgba(0,104,255,0.18)]" 
+              className="mt-3 flex h-[48px] w-full items-center justify-center gap-2.5 rounded-[9px] bg-[#0068ff] text-[15px] font-black text-white shadow-[0_10px_20px_rgba(0,104,255,0.18)] disabled:opacity-75 disabled:cursor-not-allowed" 
               onClick={onUnlock}
+              disabled={isCheckingOut}
               whileTap={reduced ? {} : { scale: 0.985 }}
               whileHover={reduced ? {} : { translateY: -1.5 }}
               transition={{ duration: 0.2 }}
             >
-              Desbloquear mi CV profesional
-              <ArrowRight className="h-5 w-5" />
+              {isCheckingOut ? (
+                <>
+                  <svg className="animate-spin -ml-1 mr-2 h-5 w-5 text-white inline" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                  Conectando...
+                </>
+              ) : (
+                <>
+                  Desbloquear mi CV profesional
+                  <ArrowRight className="h-5 w-5" />
+                </>
+              )}
             </motion.button>
           </div>
         </motion.section>
@@ -2536,16 +2723,100 @@ function SuccessScreen({
   onDoc,
   onHome,
   onPdf,
+  orderStatus = null,
+  loadingOrder = false,
+  onRefreshOrder,
 }: {
-  analysis: AnalysisResponse;
+  analysis: AnalysisResponse | null;
   fileName: string;
   onDoc: () => void;
   onHome: () => void;
   onPdf: () => void;
+  orderStatus?: string | null;
+  loadingOrder?: boolean;
+  onRefreshOrder: () => void;
 }) {
   const reduced = usePrefersReducedMotion();
   const stagger = animStagger(reduced);
   const fadeUp = animFadeUp(reduced);
+
+  if (loadingOrder) {
+    return (
+      <ScreenShell>
+        <div className="flex flex-col items-center justify-center py-24 px-5 text-center space-y-4">
+          <div className="h-10 w-10 animate-spin rounded-full border-4 border-[#0068ff] border-t-transparent"></div>
+          <h1 className="text-[17px] font-black text-[#070b2f]">Verificando el estado de tu pago...</h1>
+          <p className="text-[13.5px] font-medium text-[#626a79] max-w-xs">
+            Estamos sincronizando los detalles de tu orden de forma segura. Por favor, no cierres esta página.
+          </p>
+        </div>
+      </ScreenShell>
+    );
+  }
+
+  if (orderStatus === "pending") {
+    return (
+      <ScreenShell>
+        <motion.div variants={stagger} initial="initial" animate="animate" className="space-y-6">
+          <motion.div variants={fadeUp}>
+            <header className="flex items-center justify-between gap-2.5 px-5 pt-4">
+              <BrandLogo />
+              <motion.button 
+                className="flex h-[38px] shrink-0 items-center gap-1.5 rounded-[6px] border border-[#cad8e8] bg-white px-2.5 text-[13.5px] font-black text-[#0c55b8]" 
+                onClick={onHome}
+                whileTap={reduced ? {} : { scale: 0.96 }}
+              >
+                <Home className="h-4 w-4" />
+                Ir al inicio
+              </motion.button>
+            </header>
+          </motion.div>
+
+          <motion.section variants={fadeUp} className="flex flex-col items-center justify-center px-5 pt-4 text-center">
+            <div className="grid h-[72px] w-[72px] place-items-center rounded-full bg-amber-50 text-amber-500 border border-amber-200">
+              <Clock3 className="h-9 w-9 animate-pulse" />
+            </div>
+            <h1 className="mt-5 text-[26px] font-black leading-none tracking-[-0.035em]">Esperando confirmación</h1>
+            <p className="mt-2.5 text-[13.5px] font-medium text-[#626a79] max-w-sm">
+              Mercado Pago está confirmando tu pago. Esto suele tomar de unos segundos a un par de minutos.
+            </p>
+          </motion.section>
+
+          <motion.section variants={fadeUp} className="px-5">
+            <div className="rounded-[12px] border border-amber-100 bg-amber-50/50 p-4 text-center space-y-4">
+              <p className="text-[13px] font-semibold text-amber-900 leading-normal">
+                ¿Completaste la transacción? Haz clic en el botón de abajo para forzar la actualización del estado.
+              </p>
+              <motion.button 
+                className="flex h-[44px] w-full items-center justify-center gap-2 rounded-[9px] bg-amber-500 hover:bg-amber-600 text-[14px] font-black text-white shadow-md" 
+                onClick={onRefreshOrder}
+                whileTap={reduced ? {} : { scale: 0.98 }}
+              >
+                <CheckCircle2 className="h-4 w-4" />
+                Actualizar estado del pago
+              </motion.button>
+            </div>
+          </motion.section>
+        </motion.div>
+      </ScreenShell>
+    );
+  }
+
+  if (!analysis) {
+    return (
+      <ScreenShell>
+        <div className="flex flex-col items-center justify-center py-20 px-5 text-center space-y-4">
+          <p className="text-[14px] font-black text-red-600">No se encontraron datos del CV.</p>
+          <motion.button 
+            className="flex h-[40px] items-center gap-1.5 rounded-[6px] border border-[#cad8e8] bg-white px-4 text-[13.5px] font-black text-[#0c55b8]" 
+            onClick={onHome}
+          >
+            Volver a intentar
+          </motion.button>
+        </div>
+      </ScreenShell>
+    );
+  }
 
   return (
     <ScreenShell>
@@ -2635,7 +2906,7 @@ function SuccessScreen({
             </motion.button>
           </div>
 
-          <h2 className="mt-5 text-center text-[18px] font-black text-left">Qué mejoramos</h2>
+          <h2 className="mt-5 text-left text-[18px] font-black">Qué mejoramos</h2>
           <div className="mt-3 grid grid-cols-1 gap-2.5">
             {analysis.diagnosis?.improvementsMade && analysis.diagnosis.improvementsMade.length > 0 ? (
               analysis.diagnosis.improvementsMade.map((imp, index) => {
