@@ -12,8 +12,16 @@ export async function GET(req: NextRequest) {
 
   // Determine dynamic host and protocol for redirection
   const host = req.headers.get("host") || "localhost:3000";
-  const protocol = req.headers.get("x-forwarded-proto") || "http";
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || `${protocol}://${host}`;
+  let protocol = req.headers.get("x-forwarded-proto") || "http";
+  if (!host.includes("localhost") && !host.includes("127.0.0.1")) {
+    protocol = "https";
+  }
+  let appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  if (!appUrl || appUrl.trim() === "" || appUrl === "MY_APP_URL" || !appUrl.startsWith("http")) {
+    appUrl = `${protocol}://${host}`;
+  } else if (appUrl.startsWith("http://") && !appUrl.includes("localhost") && !appUrl.includes("127.0.0.1")) {
+    appUrl = appUrl.replace("http://", "https://");
+  }
 
   if (action === "approve") {
     const paymentId = "MOCK-PAY-" + Math.random().toString(36).substring(2, 11).toUpperCase();
