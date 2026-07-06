@@ -31,7 +31,14 @@ export async function createOrder(order: Omit<Order, "created_at" | "updated_at"
     updated_at: timestamp,
   };
 
+  const isProduction = process.env.NODE_ENV === "production";
+  const isDemoMode = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
+  const allowFallback = !isProduction || isDemoMode;
+
   if (!supabase) {
+    if (!allowFallback) {
+      throw new Error("Supabase is not configured. Real database is required in production.");
+    }
     console.log("Using in-memory store for creating order:", fullOrder.id);
     inMemoryOrders.set(fullOrder.id, fullOrder);
     return fullOrder;
@@ -60,14 +67,20 @@ export async function createOrder(order: Omit<Order, "created_at" | "updated_at"
 
     if (error) {
       console.error("Supabase insert order error:", error);
+      if (!allowFallback) {
+        throw new Error(`Failed to insert order into Supabase: ${error.message}`);
+      }
       // Fallback in case of database table not created yet or permission issues
       inMemoryOrders.set(fullOrder.id, fullOrder);
       return fullOrder;
     }
 
     return data as Order;
-  } catch (err) {
+  } catch (err: any) {
     console.error("Unexpected error in Supabase createOrder:", err);
+    if (!allowFallback) {
+      throw err;
+    }
     inMemoryOrders.set(fullOrder.id, fullOrder);
     return fullOrder;
   }
@@ -76,7 +89,14 @@ export async function createOrder(order: Omit<Order, "created_at" | "updated_at"
 export async function getOrderById(id: string): Promise<Order | null> {
   const supabase = getSupabaseAdmin();
 
+  const isProduction = process.env.NODE_ENV === "production";
+  const isDemoMode = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
+  const allowFallback = !isProduction || isDemoMode;
+
   if (!supabase) {
+    if (!allowFallback) {
+      throw new Error("Supabase is not configured. Real database is required in production.");
+    }
     console.log("Using in-memory store for retrieving order:", id);
     return inMemoryOrders.get(id) || null;
   }
@@ -90,6 +110,9 @@ export async function getOrderById(id: string): Promise<Order | null> {
 
     if (error) {
       console.error("Supabase get order error:", error);
+      if (!allowFallback) {
+        throw new Error(`Failed to fetch order from Supabase: ${error.message}`);
+      }
       return inMemoryOrders.get(id) || null;
     }
 
@@ -97,9 +120,15 @@ export async function getOrderById(id: string): Promise<Order | null> {
       return data as Order;
     }
 
+    if (!allowFallback) {
+      return null;
+    }
     return inMemoryOrders.get(id) || null;
-  } catch (err) {
+  } catch (err: any) {
     console.error("Unexpected error in Supabase getOrderById:", err);
+    if (!allowFallback) {
+      throw err;
+    }
     return inMemoryOrders.get(id) || null;
   }
 }
@@ -107,7 +136,14 @@ export async function getOrderById(id: string): Promise<Order | null> {
 export async function getOrderByPreferenceId(preferenceId: string): Promise<Order | null> {
   const supabase = getSupabaseAdmin();
 
+  const isProduction = process.env.NODE_ENV === "production";
+  const isDemoMode = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
+  const allowFallback = !isProduction || isDemoMode;
+
   if (!supabase) {
+    if (!allowFallback) {
+      throw new Error("Supabase is not configured. Real database is required in production.");
+    }
     console.log("Using in-memory store for searching order by preference_id:", preferenceId);
     for (const order of inMemoryOrders.values()) {
       if (order.mercado_pago_preference_id === preferenceId) {
@@ -126,6 +162,9 @@ export async function getOrderByPreferenceId(preferenceId: string): Promise<Orde
 
     if (error) {
       console.error("Supabase get order by preference ID error:", error);
+      if (!allowFallback) {
+        throw new Error(`Failed to fetch order by preference from Supabase: ${error.message}`);
+      }
       for (const order of inMemoryOrders.values()) {
         if (order.mercado_pago_preference_id === preferenceId) {
           return order;
@@ -138,14 +177,21 @@ export async function getOrderByPreferenceId(preferenceId: string): Promise<Orde
       return data as Order;
     }
 
+    if (!allowFallback) {
+      return null;
+    }
+
     for (const order of inMemoryOrders.values()) {
       if (order.mercado_pago_preference_id === preferenceId) {
         return order;
       }
     }
     return null;
-  } catch (err) {
+  } catch (err: any) {
     console.error("Unexpected error in Supabase getOrderByPreferenceId:", err);
+    if (!allowFallback) {
+      throw err;
+    }
     for (const order of inMemoryOrders.values()) {
       if (order.mercado_pago_preference_id === preferenceId) {
         return order;
@@ -164,17 +210,27 @@ export async function updateOrderStatus(
   const supabase = getSupabaseAdmin();
   const timestamp = new Date().toISOString();
 
-  // Always update in-memory
-  const localOrder = inMemoryOrders.get(id);
-  if (localOrder) {
-    localOrder.status = status;
-    localOrder.updated_at = timestamp;
-    if (paymentId) localOrder.mercado_pago_payment_id = paymentId;
-    if (paidAt) localOrder.paid_at = paidAt;
-    inMemoryOrders.set(id, localOrder);
+  const isProduction = process.env.NODE_ENV === "production";
+  const isDemoMode = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
+  const allowFallback = !isProduction || isDemoMode;
+
+  // Only update in-memory if fallback is allowed
+  let localOrder = null;
+  if (allowFallback) {
+    localOrder = inMemoryOrders.get(id);
+    if (localOrder) {
+      localOrder.status = status;
+      localOrder.updated_at = timestamp;
+      if (paymentId) localOrder.mercado_pago_payment_id = paymentId;
+      if (paidAt) localOrder.paid_at = paidAt;
+      inMemoryOrders.set(id, localOrder);
+    }
   }
 
   if (!supabase) {
+    if (!allowFallback) {
+      throw new Error("Supabase is not configured. Real database is required in production.");
+    }
     console.log("Using in-memory store for updating order status:", id, status);
     return localOrder || null;
   }
@@ -196,12 +252,18 @@ export async function updateOrderStatus(
 
     if (error) {
       console.error("Supabase update order error:", error);
+      if (!allowFallback) {
+        throw new Error(`Failed to update order in Supabase: ${error.message}`);
+      }
       return localOrder || null;
     }
 
     return data as Order;
-  } catch (err) {
+  } catch (err: any) {
     console.error("Unexpected error in Supabase updateOrderStatus:", err);
+    if (!allowFallback) {
+      throw err;
+    }
     return localOrder || null;
   }
 }

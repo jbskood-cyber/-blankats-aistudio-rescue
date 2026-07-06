@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { updateOrderStatus } from "../../../../../lib/orders-store";
 
 export async function GET(req: NextRequest) {
+  const isProduction = process.env.NODE_ENV === "production";
+  const isDemoMode = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
+  if (isProduction && !isDemoMode) {
+    return new NextResponse("Not Found", { status: 404 });
+  }
+
   const { searchParams } = new URL(req.url);
   const orderId = searchParams.get("orderId");
   const action = searchParams.get("action");

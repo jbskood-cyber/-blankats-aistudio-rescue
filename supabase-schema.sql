@@ -22,12 +22,6 @@ CREATE TABLE IF NOT EXISTS orders (
 -- Enable RLS (Row Level Security)
 ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
 
--- Create policy to allow anonymous/public read access to individual orders by ID
-CREATE POLICY "Allow public read access by id" 
-ON orders FOR SELECT 
-TO public 
-USING (true);
-
 -- Create policy to allow service role full access
 CREATE POLICY "Allow service role full write/read access" 
 ON orders FOR ALL 

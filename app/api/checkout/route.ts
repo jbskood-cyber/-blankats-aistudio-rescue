@@ -34,6 +34,9 @@ export async function POST(req: NextRequest) {
     let initPoint: string | null = null;
 
     const mpToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
+    const isProduction = process.env.NODE_ENV === "production";
+    const isDemoMode = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
+    const allowMock = !isProduction || isDemoMode;
 
     if (mpToken && mpToken.trim() !== "" && mpToken !== "YOUR_MERCADO_PAGO_ACCESS_TOKEN") {
       try {
@@ -69,13 +72,30 @@ export async function POST(req: NextRequest) {
 
         preferenceId = response.id || null;
         initPoint = response.init_point || null;
-      } catch (mpError) {
+      } catch (mpError: any) {
         console.error("Failed to create real Mercado Pago preference:", mpError);
+        if (!allowMock) {
+          return NextResponse.json({
+            error: "Error de configuración de pagos: No se pudo generar la preferencia de Mercado Pago en producción.",
+            details: mpError.message || String(mpError)
+          }, { status: 502 });
+        }
+      }
+    } else {
+      if (!allowMock) {
+        return NextResponse.json({
+          error: "Error de configuración de pagos: Mercado Pago no está configurado en producción."
+        }, { status: 500 });
       }
     }
 
     // If real Mercado Pago was not configured or failed to initialize, use Mock Checkout Simulator
     if (!initPoint) {
+      if (!allowMock) {
+        return NextResponse.json({
+          error: "Error de configuración de pagos: No se pudo generar la pasarela de pagos en producción."
+        }, { status: 500 });
+      }
       console.log("Using Mock Checkout simulator for order:", orderId);
       initPoint = `${appUrl}/api/checkout/mock-pay?orderId=${orderId}`;
     }
@@ -98,7 +118,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       orderId,
       init_point: initPoint,
-      isMock: !mpToken,
+      isMock: !preferenceId,
     });
   } catch (error: any) {
     console.error("Error in /api/checkout:", error);
