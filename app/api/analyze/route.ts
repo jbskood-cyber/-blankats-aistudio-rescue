@@ -117,6 +117,49 @@ NUNCA unas viñetas (bullets) con ".-", " - ", saltos de línea internos ni sím
 PROMESA SEGURA:
 No prometas empleo, ni pasar ATS garantizado, ni vencer sistemas de reclutamiento. Usa lenguaje seguro, por ejemplo: estructura más clara, presentación profesional, fácil de revisar, preparado para procesos digitales y reclutadores.
 
+NUEVA REGLA CRÍTICA - AUDITORÍA PROFESIONAL DE CV (DIAGNÓSTICO):
+Debes generar un diagnóstico 100% real, personalizado y coherente con el CV analizado en el objeto JSON bajo la clave 'diagnosis'. El tono debe ser el de una auditoría profesional realizada por un especialista en reclutamiento, hablando siempre del documento (CV) y de la presentación de la trayectoria, nunca juzgando o evaluando a la persona o candidato. Evita sonar robótico, frío, académico, defensivo o alarmista. No intentes justificar la calificación (score).
+
+Reglas de redacción de la auditoría:
+1. Usar siempre frases centradas en el documento, tales como:
+   - "El CV muestra..."
+   - "El documento presenta..."
+   - "La experiencia está bien identificada, pero..."
+   - "La mejora principal está en..."
+   - "Para hacerlo más competitivo, conviene..."
+2. Evitar estrictamente palabras o frases como:
+   - "El candidato..."
+   - "La persona..."
+   - "Obtuvo X porque..."
+   - "La puntuación refleja..."
+   - "Esto afecta negativamente..."
+   - "penaliza..."
+   - "deficiente..."
+3. diagnosis.headline: Frase corta y sumamente específica al CV (máximo 12 palabras) que resuma el estado profesional de la presentación del CV. NUNCA menciones la calificación, score o palabras genéricas como "Buen potencial".
+   Ejemplos correctos:
+   - "Experiencia logística clara, con margen para reforzar impacto"
+   - "Perfil administrativo con experiencia aprovechable, pero poco diferenciado"
+   - "Trayectoria sólida, con margen para reforzar logros"
+   - "CV claro, aunque necesita mayor impacto profesional"
+   - "Experiencia relevante, pero presentación todavía débil"
+4. diagnosis.summary: Explicación de máximo 2 frases breves de lo que se observa en el CV y el enfoque principal de mejora. NO justifiques el score, no hables de calificación, ni repitas problemas en formato largo.
+   Ejemplo correcto:
+   "El CV muestra experiencia operativa y responsabilidades bien identificadas. Para hacerlo más competitivo, conviene convertir descripciones generales en logros más claros, ordenar habilidades y reforzar el resumen profesional."
+5. diagnosis.scoreExplanation: Esta sección se mostrará bajo el título "Lectura del CV". Debe tener un máximo de 2 a 3 frases. Debe explicar de forma constructiva e imparcial (sin justificar el score ni hablar de la calificación):
+   - qué se observa en el CV
+   - qué limita su claridad o impacto
+   - qué se debe mejorar primero
+   Ejemplo correcto:
+   "El documento tiene una base laboral útil, pero todavía comunica más funciones que resultados. La mejora principal está en mostrar qué aportes fueron más relevantes, qué herramientas se utilizaron y qué responsabilidades tuvieron mayor peso."
+6. diagnosis.recommendationCards: Lista de recomendaciones clave personalizadas y conectadas al CV original. Deben estar escritas como acciones claras de mejora del documento, por ejemplo:
+   - "Convierte tareas en logros"
+   - "Ordena habilidades por categoría"
+   - "Refuerza el resumen con enfoque profesional"
+   - "Aclara periodos o datos incompletos"
+   - "Agrega contexto cuando no existan métricas"
+   No recomiendes secciones genéricas como "Idiomas" o "Intereses" salvo que el CV realmente lo justifique.
+7. diagnosis.improvementsMade: Lista de cambios que realmente aplicaste en 'improvedCV' con su 'title' y 'description' que expliquen con exactitud lo que hiciste en la versión mejorada (deben ser reales, sin prometer pasar ATS, etc.).
+
 IDIOMA:
 El idioma de toda la respuesta JSON (incluyendo la diagnosis y el improvedCV) debe ser idéntico al idioma predominante del CV proporcionado (si el original está en inglés, responde en inglés; si está en español, responde en español).
 
@@ -189,6 +232,60 @@ ${originalText ? `"""\n${originalText}\n"""` : "(Ver archivo PDF adjunto)"}
                   type: Type.ARRAY,
                   items: { type: Type.STRING },
                   description: "Acciones recomendadas específicas para el candidato para mejorar la presentación.",
+                },
+                diagnosis: {
+                  type: Type.OBJECT,
+                  properties: {
+                    headline: {
+                      type: Type.STRING,
+                      description: "Frase corta y específica (máximo 12 palabras, ej: 'Trayectoria sólida, con margen para reforzar logros'). NUNCA menciones la puntuación o 'score'.",
+                    },
+                    summary: {
+                      type: Type.STRING,
+                      description: "Explicación breve de max 2 frases de lo que la IA ve en el CV y el enfoque principal de mejora. NO justifiques el score ni menciones palabras sobre la calificación o puntuación.",
+                    },
+                    scoreExplanation: {
+                      type: Type.STRING,
+                      description: "Breve explicación no defensiva de por qué obtuvo ese score.",
+                    },
+                    mainFindings: {
+                      type: Type.ARRAY,
+                      items: { type: Type.STRING },
+                      description: "Lista de hallazgos reales del CV original.",
+                    },
+                    recommendationCards: {
+                      type: Type.ARRAY,
+                      items: {
+                        type: Type.OBJECT,
+                        properties: {
+                          title: { type: Type.STRING, description: "Título breve de la recomendación clave y conectada al CV original." },
+                          description: { type: Type.STRING, description: "Descripción detallada de la recomendación y cómo aplicarla." },
+                        },
+                        required: ["title", "description"],
+                      },
+                      description: "Lista de recomendaciones clave y personalizadas, conectadas directamente con el contenido y debilidades del CV original.",
+                    },
+                    improvementsMade: {
+                      type: Type.ARRAY,
+                      items: {
+                        type: Type.OBJECT,
+                        properties: {
+                          title: { type: Type.STRING, description: "Título breve del cambio real realizado (ej: 'Resumen reescrito con enfoque administrativo')." },
+                          description: { type: Type.STRING, description: "Descripción de cómo se mejoró ese aspecto de acuerdo con lo que realmente hiciste en improvedCV." },
+                        },
+                        required: ["title", "description"],
+                      },
+                      description: "Lista que explica con exactitud qué hizo la IA en improvedCV para mejorar la versión del candidato.",
+                    },
+                  },
+                  required: [
+                    "headline",
+                    "summary",
+                    "scoreExplanation",
+                    "mainFindings",
+                    "recommendationCards",
+                    "improvementsMade"
+                  ],
                 },
                 improvedCV: {
                   type: Type.OBJECT,
@@ -298,6 +395,7 @@ ${originalText ? `"""\n${originalText}\n"""` : "(Ver archivo PDF adjunto)"}
                 "problems",
                 "missingSections",
                 "recommendations",
+                "diagnosis",
                 "improvedCV",
                 "deliveryDecision"
               ],

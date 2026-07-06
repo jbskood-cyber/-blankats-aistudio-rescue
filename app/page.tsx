@@ -79,6 +79,20 @@ interface AnalysisResponse {
   problems: string[];
   missingSections: string[];
   recommendations: string[];
+  diagnosis?: {
+    headline: string;
+    summary: string;
+    scoreExplanation: string;
+    mainFindings: string[];
+    recommendationCards: {
+      title: string;
+      description: string;
+    }[];
+    improvementsMade: {
+      title: string;
+      description: string;
+    }[];
+  };
   improvedCV: ImprovedCV;
   deliveryDecision: {
     allowDownload: boolean;
@@ -262,6 +276,38 @@ function buildCvRenderModel(improvedCV: ImprovedCV) {
     certifications: improvedCV.certifications || [],
   };
 }
+
+function fitsDocxLine(text: string, maxChars = 90) {
+  return text.replace(/\s+/g, " ").trim().length <= maxChars;
+}
+
+function usePrefersReducedMotion() {
+  const [reduced, setReduced] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+    setReduced(mediaQuery.matches);
+    const listener = (e: MediaQueryListEvent) => setReduced(e.matches);
+    mediaQuery.addEventListener("change", listener);
+    return () => mediaQuery.removeEventListener("change", listener);
+  }, []);
+  return reduced;
+}
+
+const animFadeUp = (reduced: boolean) => ({
+  initial: { opacity: 0, y: reduced ? 0 : 14, filter: "blur(4px)" },
+  animate: { opacity: 1, y: 0, filter: "blur(0px)" },
+  transition: { duration: 0.38, ease: [0.22, 1, 0.36, 1] }
+});
+
+const animStagger = (reduced: boolean) => ({
+  initial: {},
+  animate: {
+    transition: {
+      staggerChildren: reduced ? 0 : 0.08,
+    }
+  }
+});
 
 export default function HomePage() {
   const [screen, setScreen] = useState<Screen>("home");
@@ -1236,14 +1282,21 @@ export default function HomePage() {
           const companyText = exp.company || "";
           const periodText = exp.period || "";
           
-          const fullHeaderString = `${roleText} — ${companyText} | ${periodText}`;
-          const fitOnSingleLine = fullHeaderString.length <= 70;
           const isFirst = idx === 0;
+          const full = `${roleText} — ${companyText} ${periodText}`.trim();
+          const secondary = `${companyText} ${periodText}`.trim();
 
-          if (fitOnSingleLine) {
+          if (fitsDocxLine(full, 90)) {
+            // Caso A: One line (with right-aligned tab stop for period)
             docChildren.push(
               new Paragraph({
                 spacing: { before: isFirst ? 120 : 180, after: 60 },
+                tabStops: [
+                  {
+                    type: "right",
+                    position: 9000,
+                  }
+                ],
                 children: [
                   new TextRun({
                     text: roleText,
@@ -1259,7 +1312,7 @@ export default function HomePage() {
                     color: "374151",
                   }),
                   new TextRun({
-                    text: ` | ${periodText}`,
+                    text: `\t${periodText}`,
                     italics: true,
                     size: 18, // 9pt
                     font: "Arial",
@@ -1268,7 +1321,9 @@ export default function HomePage() {
                 ],
               })
             );
-          } else {
+          } else if (fitsDocxLine(secondary, 80)) {
+            // Caso B: Two lines
+            // Line 1: Role only
             docChildren.push(
               new Paragraph({
                 spacing: { before: isFirst ? 120 : 180, after: 20 },
@@ -1280,8 +1335,60 @@ export default function HomePage() {
                     font: "Arial",
                     color: "0F172A",
                   }),
+                ],
+              })
+            );
+            // Line 2: Company and right-aligned Period
+            docChildren.push(
+              new Paragraph({
+                spacing: { before: 0, after: 60 },
+                tabStops: [
+                  {
+                    type: "right",
+                    position: 9000,
+                  }
+                ],
+                children: [
                   new TextRun({
-                    text: ` — ${companyText}`,
+                    text: companyText,
+                    size: 20, // 10pt
+                    font: "Arial",
+                    color: "374151",
+                  }),
+                  new TextRun({
+                    text: `\t${periodText}`,
+                    italics: true,
+                    size: 18, // 9pt
+                    font: "Arial",
+                    color: "374151",
+                  }),
+                ],
+              })
+            );
+          } else {
+            // Caso C: Three lines
+            // Line 1: Role
+            docChildren.push(
+              new Paragraph({
+                spacing: { before: isFirst ? 120 : 180, after: 20 },
+                children: [
+                  new TextRun({
+                    text: roleText,
+                    bold: true,
+                    size: 20, // 10pt
+                    font: "Arial",
+                    color: "0F172A",
+                  }),
+                ],
+              })
+            );
+            // Line 2: Company
+            docChildren.push(
+              new Paragraph({
+                spacing: { before: 0, after: 20 },
+                children: [
+                  new TextRun({
+                    text: companyText,
                     size: 20, // 10pt
                     font: "Arial",
                     color: "374151",
@@ -1289,6 +1396,7 @@ export default function HomePage() {
                 ],
               })
             );
+            // Line 3: Period
             docChildren.push(
               new Paragraph({
                 spacing: { before: 0, after: 60 },
@@ -1359,14 +1467,21 @@ export default function HomePage() {
           const institutionText = edu.institution || "";
           const periodText = edu.period || "";
           
-          const fullHeaderString = `${degreeText} — ${institutionText} | ${periodText}`;
-          const fitOnSingleLine = fullHeaderString.length <= 70;
           const isFirst = idx === 0;
+          const full = `${degreeText} — ${institutionText} ${periodText}`.trim();
+          const secondary = `${institutionText} ${periodText}`.trim();
 
-          if (fitOnSingleLine) {
+          if (fitsDocxLine(full, 90)) {
+            // Caso A: One line
             docChildren.push(
               new Paragraph({
                 spacing: { before: isFirst ? 120 : 180, after: 60 },
+                tabStops: [
+                  {
+                    type: "right",
+                    position: 9000,
+                  }
+                ],
                 children: [
                   new TextRun({
                     text: degreeText,
@@ -1382,7 +1497,7 @@ export default function HomePage() {
                     color: "374151",
                   }),
                   new TextRun({
-                    text: ` | ${periodText}`,
+                    text: `\t${periodText}`,
                     italics: true,
                     size: 18, // 9pt
                     font: "Arial",
@@ -1391,7 +1506,9 @@ export default function HomePage() {
                 ],
               })
             );
-          } else {
+          } else if (fitsDocxLine(secondary, 80)) {
+            // Caso B: Two lines
+            // Line 1: Degree only
             docChildren.push(
               new Paragraph({
                 spacing: { before: isFirst ? 120 : 180, after: 20 },
@@ -1403,8 +1520,60 @@ export default function HomePage() {
                     font: "Arial",
                     color: "0F172A",
                   }),
+                ],
+              })
+            );
+            // Line 2: Institution and Period
+            docChildren.push(
+              new Paragraph({
+                spacing: { before: 0, after: 60 },
+                tabStops: [
+                  {
+                    type: "right",
+                    position: 9000,
+                  }
+                ],
+                children: [
                   new TextRun({
-                    text: ` — ${institutionText}`,
+                    text: institutionText,
+                    size: 20, // 10pt
+                    font: "Arial",
+                    color: "374151",
+                  }),
+                  new TextRun({
+                    text: `\t${periodText}`,
+                    italics: true,
+                    size: 18, // 9pt
+                    font: "Arial",
+                    color: "374151",
+                  }),
+                ],
+              })
+            );
+          } else {
+            // Caso C: Three lines
+            // Line 1: Degree
+            docChildren.push(
+              new Paragraph({
+                spacing: { before: isFirst ? 120 : 180, after: 20 },
+                children: [
+                  new TextRun({
+                    text: degreeText,
+                    bold: true,
+                    size: 20, // 10pt
+                    font: "Arial",
+                    color: "0F172A",
+                  }),
+                ],
+              })
+            );
+            // Line 2: Institution
+            docChildren.push(
+              new Paragraph({
+                spacing: { before: 0, after: 20 },
+                children: [
+                  new TextRun({
+                    text: institutionText,
                     size: 20, // 10pt
                     font: "Arial",
                     color: "374151",
@@ -1412,6 +1581,7 @@ export default function HomePage() {
                 ],
               })
             );
+            // Line 3: Period
             docChildren.push(
               new Paragraph({
                 spacing: { before: 0, after: 60 },
@@ -1470,14 +1640,19 @@ export default function HomePage() {
           const projName = proj.name || "";
           const projPeriod = proj.period || "";
           
-          const fullHeaderString = projPeriod ? `${projName} | ${projPeriod}` : projName;
-          const fitOnSingleLine = fullHeaderString.length <= 70;
           const isFirst = idx === 0;
+          const full = projPeriod ? `${projName} ${projPeriod}`.trim() : projName;
 
-          if (fitOnSingleLine) {
+          if (fitsDocxLine(full, 90)) {
             docChildren.push(
               new Paragraph({
                 spacing: { before: isFirst ? 120 : 180, after: 60 },
+                tabStops: [
+                  {
+                    type: "right",
+                    position: 9000,
+                  }
+                ],
                 children: [
                   new TextRun({
                     text: projName,
@@ -1487,7 +1662,7 @@ export default function HomePage() {
                     color: "0F172A",
                   }),
                   projPeriod ? new TextRun({
-                    text: ` | ${projPeriod}`,
+                    text: `\t${projPeriod}`,
                     italics: true,
                     size: 18, // 9pt
                     font: "Arial",
@@ -1717,48 +1892,75 @@ function compactFileName(name: string, maxLength = 28) {
 }
 
 function LandingScreen({ onGo, hasRealAnalysis }: { onGo: (screen: Screen) => void; hasRealAnalysis: boolean }) {
+  const reduced = usePrefersReducedMotion();
+  const stagger = animStagger(reduced);
+  const fadeUp = animFadeUp(reduced);
+
   return (
     <ScreenShell>
-      <SimpleHeader />
+      <motion.div variants={stagger} initial="initial" animate="animate" className="space-y-4">
+        <motion.div variants={fadeUp}>
+          <SimpleHeader />
+        </motion.div>
 
-      <section className="px-5 pt-5 text-center">
-        <h1 className="text-[27px] font-black leading-[1.1] tracking-[-0.03em] min-[390px]:text-[29px]">
-          Mejora tu CV
-          <span className="block text-[#0068ff]">antes de enviarlo</span>
-        </h1>
-        <p className="mx-auto mt-2 max-w-[320px] text-[14px] font-medium leading-5 text-[#626a79]">
-          Recibe un diagnóstico gratuito y desbloquea una versión profesional más clara, ordenada y lista para descargar.
-        </p>
-        <button className="mt-4 flex h-[48px] w-full items-center justify-center gap-2.5 rounded-[9px] bg-[#0068ff] text-[15px] font-black text-white shadow-[0_10px_20px_rgba(0,104,255,0.18)] transition duration-200 hover:-translate-y-0.5 active:scale-[0.98]" onClick={() => onGo("upload")}>
-          <Sparkles className="h-4.5 w-4.5" />
-          Analizar mi CV gratis
-        </button>
-      </section>
+        <motion.section variants={fadeUp} className="px-5 pt-1 text-center">
+          <h1 className="text-[27px] font-black leading-[1.1] tracking-[-0.03em] min-[390px]:text-[29px]">
+            Mejora tu CV
+            <span className="block text-[#0068ff]">antes de enviarlo</span>
+          </h1>
+          <p className="mx-auto mt-2 max-w-[320px] text-[14px] font-medium leading-5 text-[#626a79]">
+            Recibe un diagnóstico gratuito y desbloquea una versión profesional más clara, ordenada y lista para descargar.
+          </p>
+          <button 
+            className="relative overflow-hidden mt-4 flex h-[48px] w-full items-center justify-center gap-2.5 rounded-[9px] bg-[#0068ff] text-[15px] font-black text-white shadow-[0_10px_20px_rgba(0,104,255,0.18)] transition duration-200 hover:-translate-y-0.5 active:scale-[0.98]" 
+            onClick={() => onGo("upload")}
+          >
+            <Sparkles className="h-4.5 w-4.5" />
+            Analizar mi CV gratis
+            {!reduced && (
+              <motion.div
+                className="absolute inset-y-0 w-1/3 bg-gradient-to-r from-transparent via-white/20 to-transparent -skew-x-12 pointer-events-none"
+                animate={{
+                  left: ["-100%", "200%"],
+                }}
+                transition={{
+                  repeat: Infinity,
+                  repeatDelay: 3.5,
+                  duration: 1.4,
+                  ease: "easeInOut",
+                }}
+              />
+            )}
+          </button>
+        </motion.section>
 
-      <section className="px-5 pt-4">
-        <HomeScoreCard />
-      </section>
+        <motion.section variants={fadeUp} className="px-5 pt-0">
+          <HomeScoreCard />
+        </motion.section>
 
-      <section className="px-5 pt-4">
-        <h2 className="text-left text-[18px] font-black">Cómo funciona</h2>
-        <div className="mt-2 grid grid-cols-1 gap-2">
-          <HowStep icon={<Upload className="h-7 w-7" />} number="1" title="Sube tu CV">
-            Carga tu PDF y nuestra IA lo analiza al instante.
-          </HowStep>
-          <HowStep icon={<BarChart3 className="h-7 w-7" />} number="2" title="Recibe diagnóstico">
-            Obtén tu puntaje y una lista de mejoras clave.
-          </HowStep>
-          <HowStep icon={<FileText className="h-7 w-7" />} number="3" title="Desbloquea versión mejorada">
-            Descarga tu CV optimizado listo para enviar.
-          </HowStep>
-        </div>
-      </section>
+        <motion.section variants={fadeUp} className="px-5 pt-0">
+          <h2 className="text-left text-[18px] font-black">Cómo funciona</h2>
+          <div className="mt-2 grid grid-cols-1 gap-2">
+            <HowStep icon={<Upload className="h-7 w-7" />} number="1" title="Sube tu CV">
+              Carga tu PDF y nuestra IA lo analiza al instante.
+            </HowStep>
+            <HowStep icon={<BarChart3 className="h-7 w-7" />} number="2" title="Recibe diagnóstico">
+              Obtén tu puntaje y una lista de mejoras clave.
+            </HowStep>
+            <HowStep icon={<FileText className="h-7 w-7" />} number="3" title="Desbloquea versión mejorada">
+              Descarga tu CV optimizado listo para enviar.
+            </HowStep>
+          </div>
+        </motion.section>
 
-      <section className="px-5 pt-4">
-        <OfferCard onClick={() => onGo(hasRealAnalysis ? "paywall" : "upload")} />
-      </section>
+        <motion.section variants={fadeUp} className="px-5 pt-0">
+          <OfferCard onClick={() => onGo(hasRealAnalysis ? "paywall" : "upload")} />
+        </motion.section>
 
-      <ProtectedNote className="mt-3 pb-4" />
+        <motion.div variants={fadeUp}>
+          <ProtectedNote className="mt-1 pb-4" />
+        </motion.div>
+      </motion.div>
     </ScreenShell>
   );
 }
@@ -1794,81 +1996,113 @@ function UploadScreen({
   onMode: (mode: InputMode) => void;
   onText: (text: string) => void;
 }) {
+  const reduced = usePrefersReducedMotion();
+  const stagger = animStagger(reduced);
+  const fadeUp = animFadeUp(reduced);
+
   return (
     <ScreenShell>
-      <BackHeader onBack={onBack} />
-      <section className="px-5 pt-4 text-center">
-        <Badge icon={<CloudUpload className="h-4 w-4" />}>Carga de CV</Badge>
-        <h1 className="mt-3 text-[28px] font-black leading-none tracking-[-0.035em] min-[390px]:text-[31px]">
-          Sube tu <span className="text-[#0068ff]">CV</span>
-        </h1>
-        <p className="mx-auto mt-2 max-w-[320px] text-[14px] font-medium leading-6 text-[#626a79]">
-          Carga tu archivo PDF o pega el texto de tu currículum para recibir un diagnóstico gratuito.
-        </p>
-      </section>
-
-      <section className="px-5 pt-4">
-        <div className="grid h-[46px] grid-cols-2 rounded-[11px] border border-[#dbe2ec] bg-white p-1 shadow-[0_8px_20px_rgba(15,25,55,0.04)]">
-          <TabButton active={inputMode === "pdf"} icon={<FileText className="h-5 w-5" />} onClick={() => onMode("pdf")}>
-            Archivo PDF
-          </TabButton>
-          <TabButton active={inputMode === "text"} icon={<PenLine className="h-5 w-5" />} onClick={() => onMode("text")}>
-            Pegar texto
-          </TabButton>
-        </div>
-
-        <div className="mt-3 rounded-[14px] border border-[#e8edf4] bg-white p-3.5 shadow-[0_8px_20px_rgba(15,25,55,0.05)]">
-          {inputMode === "pdf" ? (
-            <div
-              className={`relative grid min-h-[150px] place-items-center rounded-[10px] border-2 border-dashed p-3 text-center ${
-                dragActive ? "border-[#0068ff] bg-[#f4f8ff]" : "border-[#8aa5c7] bg-white"
-              }`}
-              onDragEnter={onDrag}
-              onDragLeave={onDrag}
-              onDragOver={onDrag}
-              onDrop={onDrop}
-            >
-              <input ref={fileInputRef} type="file" accept="application/pdf" className="sr-only" onChange={onFileChange} />
-              <button className="absolute inset-0 cursor-pointer" aria-label="Seleccionar PDF" onClick={() => fileInputRef.current?.click()} type="button" />
-              <div className="w-full max-w-full min-w-0 overflow-hidden flex flex-col items-center">
-                <div className="mx-auto grid h-[52px] w-[52px] place-items-center rounded-full bg-[#edf5ff] text-[#0068ff]">
-                  <FileText className="h-6 w-6" />
-                </div>
-                <h2
-                  className="mx-auto mt-3.5 block w-full max-w-[240px] min-[390px]:max-w-[80%] overflow-hidden text-ellipsis whitespace-nowrap px-1 text-[16px] font-black tracking-[-0.02em] break-normal text-center"
-                  title={file ? file.name : undefined}
-                >
-                  {file ? compactFileName(file.name) : <>Arrastra o <span className="text-[#0068ff]">selecciona</span> tu CV</>}
-                </h2>
-                <p className="mt-1 text-[13px] font-medium text-[#8a929f]">Solo PDF · Máx. 10 MB</p>
-              </div>
-            </div>
-          ) : (
-            <textarea
-              value={pastedText}
-              onChange={(event) => onText(event.target.value)}
-              className="min-h-[150px] w-full resize-none rounded-[10px] border-2 border-dashed border-[#8aa5c7] bg-white p-3 text-[14px] leading-5 text-[#070b2f] outline-none placeholder:text-[#8a929f]"
-              placeholder="Pega aquí el texto de tu currículum para recibir el diagnóstico visual."
-            />
-          )}
-        </div>
-
-        <div className="mt-3 flex items-center gap-2.5 rounded-[12px] border border-[#e7edf5] bg-white p-3 shadow-[0_6px_16px_rgba(15,25,55,0.04)]">
-          <div className="grid h-[42px] w-[42px] shrink-0 place-items-center rounded-full bg-[#edf5ff] text-[#0068ff]">
-            <ShieldCheck className="h-6 w-6" />
-          </div>
-          <p className="text-[13.5px] font-medium leading-5 text-[#626a79]">
-            <span className="font-black text-[#070b2f]">Tus datos están protegidos.</span> No compartimos tu información y tu archivo se usa solo para el análisis.
+      <motion.div variants={stagger} initial="initial" animate="animate" className="space-y-4">
+        <motion.div variants={fadeUp}>
+          <BackHeader onBack={onBack} />
+        </motion.div>
+        
+        <motion.section variants={fadeUp} className="px-5 pt-1 text-center">
+          <Badge icon={<CloudUpload className="h-4 w-4" />}>Carga de CV</Badge>
+          <h1 className="mt-3 text-[28px] font-black leading-none tracking-[-0.035em] min-[390px]:text-[31px]">
+            Sube tu <span className="text-[#0068ff]">CV</span>
+          </h1>
+          <p className="mx-auto mt-2 max-w-[320px] text-[14px] font-medium leading-6 text-[#626a79]">
+            Carga tu archivo PDF o pega el texto de tu currículum para recibir un diagnóstico gratuito.
           </p>
-        </div>
+        </motion.section>
 
-        {note ? <p className="mt-3 rounded-[10px] bg-[#fff7e9] px-3.5 py-2.5 text-[13px] font-bold leading-5 text-[#935a12]">{note}</p> : null}
+        <motion.section variants={fadeUp} className="px-5 pt-1">
+          <div className="grid h-[46px] grid-cols-2 rounded-[11px] border border-[#dbe2ec] bg-white p-1 shadow-[0_8px_20px_rgba(15,25,55,0.04)]">
+            <TabButton active={inputMode === "pdf"} icon={<FileText className="h-5 w-5" />} onClick={() => onMode("pdf")}>
+              Archivo PDF
+            </TabButton>
+            <TabButton active={inputMode === "text"} icon={<PenLine className="h-5 w-5" />} onClick={() => onMode("text")}>
+              Pegar texto
+            </TabButton>
+          </div>
 
-        <button className="mt-4 flex h-[48px] w-full items-center justify-center gap-2.5 rounded-[9px] bg-[#0068ff] text-[15px] font-black text-white shadow-[0_10px_20px_rgba(0,104,255,0.18)] transition duration-200 hover:-translate-y-0.5 active:scale-[0.98] disabled:bg-[#9fc7ff]" disabled={!canAnalyze} onClick={onAnalyze}>
-          <Sparkles className="h-5 w-5" />
-          Analizar mi CV
-        </button>
-      </section>
+          <div className="mt-3 rounded-[14px] border border-[#e8edf4] bg-white p-3.5 shadow-[0_8px_20px_rgba(15,25,55,0.05)]">
+            {inputMode === "pdf" ? (
+              <motion.div
+                className={`relative grid min-h-[150px] place-items-center rounded-[10px] border-2 border-dashed p-3 text-center ${
+                  dragActive ? "border-[#0068ff] bg-[#f4f8ff]" : "border-[#8aa5c7] bg-white"
+                }`}
+                onDragEnter={onDrag}
+                onDragLeave={onDrag}
+                onDragOver={onDrag}
+                onDrop={onDrop}
+                whileHover={reduced ? {} : { scale: 1.01, borderColor: "#0068ff", backgroundColor: "#f9fbff" }}
+                whileTap={reduced ? {} : { scale: 0.99 }}
+                transition={{ duration: 0.2 }}
+              >
+                <input ref={fileInputRef} type="file" accept="application/pdf" className="sr-only" onChange={onFileChange} />
+                <button className="absolute inset-0 cursor-pointer" aria-label="Seleccionar PDF" onClick={() => fileInputRef.current?.click()} type="button" />
+                
+                <motion.div 
+                  key={file ? "selected" : "empty"}
+                  initial={{ scale: reduced ? 1 : 0.93, opacity: 0.85 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={{ type: "spring", stiffness: 350, damping: 22 }}
+                  className="w-full max-w-full min-w-0 overflow-hidden flex flex-col items-center"
+                >
+                  <motion.div 
+                    className="mx-auto grid h-[52px] w-[52px] place-items-center rounded-full bg-[#edf5ff] text-[#0068ff]"
+                    whileHover={reduced ? {} : { y: -4, scale: 1.05 }}
+                    transition={{ type: "spring", stiffness: 300, damping: 15 }}
+                  >
+                    <FileText className="h-6 w-6" />
+                  </motion.div>
+                  <h2
+                    className="mx-auto mt-3.5 block w-full max-w-[240px] min-[390px]:max-w-[80%] overflow-hidden text-ellipsis whitespace-nowrap px-1 text-[16px] font-black tracking-[-0.02em] break-normal text-center"
+                    title={file ? file.name : undefined}
+                  >
+                    {file ? compactFileName(file.name) : <>Arrastra o <span className="text-[#0068ff]">selecciona</span> tu CV</>}
+                  </h2>
+                  <p className="mt-1 text-[13px] font-medium text-[#8a929f]">Solo PDF · Máx. 10 MB</p>
+                </motion.div>
+              </motion.div>
+            ) : (
+              <textarea
+                value={pastedText}
+                onChange={(event) => onText(event.target.value)}
+                className="min-h-[150px] w-full resize-none rounded-[10px] border-2 border-dashed border-[#8aa5c7] bg-white p-3 text-[14px] leading-5 text-[#070b2f] outline-none placeholder:text-[#8a929f] transition duration-200 focus:border-[#0068ff]"
+                placeholder="Pega aquí el texto de tu currículum para recibir el diagnóstico visual."
+              />
+            )}
+          </div>
+        </motion.section>
+
+        <motion.section variants={fadeUp} className="px-5 pt-0">
+          <div className="flex items-center gap-2.5 rounded-[12px] border border-[#e7edf5] bg-white p-3 shadow-[0_6px_16px_rgba(15,25,55,0.04)]">
+            <div className="grid h-[42px] w-[42px] shrink-0 place-items-center rounded-full bg-[#edf5ff] text-[#0068ff]">
+              <ShieldCheck className="h-6 w-6" />
+            </div>
+            <p className="text-[13.5px] font-medium leading-5 text-[#626a79] text-left">
+              <span className="font-black text-[#070b2f]">Tus datos están protegidos.</span> No compartimos tu información y tu archivo se usa solo para el análisis.
+            </p>
+          </div>
+
+          {note ? <p className="mt-3 rounded-[10px] bg-[#fff7e9] px-3.5 py-2.5 text-[13px] font-bold leading-5 text-[#935a12]">{note}</p> : null}
+
+          <motion.button 
+            className="mt-4 flex h-[48px] w-full items-center justify-center gap-2.5 rounded-[9px] bg-[#0068ff] text-[15px] font-black text-white shadow-[0_10px_20px_rgba(0,104,255,0.18)] disabled:bg-[#9fc7ff]" 
+            disabled={!canAnalyze} 
+            onClick={onAnalyze}
+            whileTap={reduced ? {} : { scale: 0.985 }}
+            whileHover={reduced ? {} : { translateY: -1.5 }}
+            transition={{ duration: 0.2 }}
+          >
+            <Sparkles className="h-5 w-5" />
+            Analizar mi CV
+          </motion.button>
+        </motion.section>
+      </motion.div>
     </ScreenShell>
   );
 }
@@ -1886,6 +2120,10 @@ function AnalyzingScreen({
   loadingMessage: string;
   file: File | null;
 }) {
+  const reduced = usePrefersReducedMotion();
+  const stagger = animStagger(reduced);
+  const fadeUp = animFadeUp(reduced);
+
   const getFileInfo = () => {
     if (!file) {
       return "Texto copiado · CV";
@@ -1896,52 +2134,57 @@ function AnalyzingScreen({
 
   return (
     <ScreenShell>
-      <SimpleHeader />
-      <section className="px-5 pt-4 text-center">
-        <Badge icon={<Sparkles className="h-4 w-4" />}>Procesando tu CV</Badge>
-        <h1 className="mt-3 text-[28px] font-black leading-none tracking-[-0.035em] min-[390px]:text-[31px]">Analizando tu CV</h1>
-        <p className="mt-2 min-h-[40px] px-3 text-[14px] font-medium text-[#626a79]">{loadingMessage}</p>
-        <div className="mt-3.5">
-          <ProgressRing value={progress} mode="percent" size={140} />
-        </div>
-      </section>
+      <motion.div variants={stagger} initial="initial" animate="animate" className="space-y-4">
+        <motion.div variants={fadeUp}>
+          <SimpleHeader />
+        </motion.div>
 
-      <section className="px-5 pt-4">
-        <div className="flex items-center gap-2.5 rounded-[12px] border border-[#e4e9f0] bg-white p-3 shadow-[0_6px_16px_rgba(15,25,55,0.04)]">
-          <PdfIcon />
-          <div className="min-w-0 flex-1 text-left overflow-hidden">
-            <p
-              className="block w-full max-w-[210px] min-[390px]:max-w-[240px] overflow-hidden text-ellipsis whitespace-nowrap text-[16px] font-black break-normal"
-              title={fileName}
-            >
-              {compactFileName(fileName)}
-            </p>
-            <p className="mt-1 text-[13px] font-medium text-[#626a79]">{getFileInfo()}</p>
+        <motion.section variants={fadeUp} className="px-5 pt-1 text-center">
+          <Badge icon={<Sparkles className="h-4 w-4" />}>Procesando tu CV</Badge>
+          <h1 className="mt-3 text-[28px] font-black leading-none tracking-[-0.035em] min-[390px]:text-[31px]">Analizando tu CV</h1>
+          <p className="mt-2 min-h-[40px] px-3 text-[14px] font-medium text-[#626a79]">{loadingMessage}</p>
+          <div className="mt-3.5">
+            <ProgressRing value={progress} mode="percent" size={140} />
           </div>
-          <CheckCircle2 className="h-6 w-6 shrink-0 text-[#18b965]" />
-        </div>
+        </motion.section>
 
-        <div className="mt-3.5 rounded-[12px] border border-[#e4e9f0] bg-white p-3.5 shadow-[0_6px_16px_rgba(15,25,55,0.04)]">
-          <TimelineStep done={activeStep > 1} active={activeStep === 1} number="1" title="Extrayendo texto">Obteniendo y estructurando el texto de tu documento.</TimelineStep>
-          <TimelineStep done={activeStep > 2} active={activeStep === 2} number="2" title="Analizando contenido">Evaluando claridad, relevancia y estructura.</TimelineStep>
-          <TimelineStep done={activeStep > 3} active={activeStep === 3} number="3" title="Optimizando formato">Mejorando presentación, secciones y legibilidad.</TimelineStep>
-          <TimelineStep done={activeStep > 4} active={activeStep === 4} number="4" title="Generando versión mejorada">Redactando sugerencias y preparando tu CV optimizado.</TimelineStep>
-        </div>
+        <motion.section variants={fadeUp} className="px-5 pt-1">
+          <div className="flex items-center gap-2.5 rounded-[12px] border border-[#e4e9f0] bg-white p-3 shadow-[0_6px_16px_rgba(15,25,55,0.04)]">
+            <PdfIcon />
+            <div className="min-w-0 flex-1 text-left overflow-hidden">
+              <p
+                className="block w-full max-w-[210px] min-[390px]:max-w-[240px] overflow-hidden text-ellipsis whitespace-nowrap text-[16px] font-black break-normal"
+                title={fileName}
+              >
+                {compactFileName(fileName)}
+              </p>
+              <p className="mt-1 text-[13px] font-medium text-[#626a79]">{getFileInfo()}</p>
+            </div>
+            <CheckCircle2 className="h-6 w-6 shrink-0 text-[#18b965]" />
+          </div>
 
-        <div className="mt-3 flex items-center justify-center gap-1.5 border-b border-[#edf0f5] pb-3 text-[14px] font-medium text-[#626a79]">
-          <Clock3 className="h-5 w-5 text-[#0068ff]" />
-          Esto tarda menos de 1 minuto
-        </div>
-      </section>
+          <div className="mt-3.5 rounded-[12px] border border-[#e4e9f0] bg-white p-3.5 shadow-[0_6px_16px_rgba(15,25,55,0.04)]">
+            <TimelineStep done={activeStep > 1} active={activeStep === 1} number="1" title="Extrayendo texto">Obteniendo y estructurando el texto de tu documento.</TimelineStep>
+            <TimelineStep done={activeStep > 2} active={activeStep === 2} number="2" title="Analizando contenido">Evaluando claridad, relevancia y estructura.</TimelineStep>
+            <TimelineStep done={activeStep > 3} active={activeStep === 3} number="3" title="Optimizando formato">Mejorando presentación, secciones y legibilidad.</TimelineStep>
+            <TimelineStep done={activeStep > 4} active={activeStep === 4} number="4" title="Generando versión mejorada">Redactando sugerencias y preparando tu CV optimizado.</TimelineStep>
+          </div>
 
-      <section className="px-5 pt-3.5 pb-4">
-        <h2 className="text-[18px] font-black">¿Qué estamos evaluando?</h2>
-        <div className="mt-2 grid grid-cols-1 gap-2">
-          <EvalCard icon={<FileText className="h-6 w-6" />} title="Formato">Estructura, orden y legibilidad del CV.</EvalCard>
-          <EvalCard icon={<UserRound className="h-6 w-6" />} title="Contenido">Relevancia, claridad y palabras clave.</EvalCard>
-          <EvalCard icon={<Star className="h-6 w-6" />} title="Impacto">Alineación con el puesto y resultados.</EvalCard>
-        </div>
-      </section>
+          <div className="mt-3 flex items-center justify-center gap-1.5 border-b border-[#edf0f5] pb-3 text-[14px] font-medium text-[#626a79]">
+            <Clock3 className="h-5 w-5 text-[#0068ff]" />
+            Esto tarda menos de 1 minuto
+          </div>
+        </motion.section>
+
+        <motion.section variants={fadeUp} className="px-5 pt-1 pb-4">
+          <h2 className="text-[18px] font-black text-left">¿Qué estamos evaluando?</h2>
+          <div className="mt-2 grid grid-cols-1 gap-2">
+            <EvalCard icon={<FileText className="h-6 w-6" />} title="Formato">Estructura, orden y legibilidad del CV.</EvalCard>
+            <EvalCard icon={<UserRound className="h-6 w-6" />} title="Contenido">Relevancia, claridad y palabras clave.</EvalCard>
+            <EvalCard icon={<Star className="h-6 w-6" />} title="Impacto">Alineación con el puesto y resultados.</EvalCard>
+          </div>
+        </motion.section>
+      </motion.div>
     </ScreenShell>
   );
 }
@@ -2004,6 +2247,10 @@ function DiagnosisScreen({
   onBack: () => void;
   onUnlock: () => void;
 }) {
+  const reduced = usePrefersReducedMotion();
+  const stagger = animStagger(reduced);
+  const fadeUp = animFadeUp(reduced);
+
   const score = analysis.score || 0;
   let scoreTitle = "Tu CV requiere una mejora profunda";
   if (score >= 90) {
@@ -2015,13 +2262,13 @@ function DiagnosisScreen({
   }
 
   const getSubtitleText = (status: string, msg: string) => {
-    let statusDesc = "Tu CV tiene una base sólida.";
+    let statusDesc = "La lectura y extracción de tu documento se realizó correctamente.";
     if (status === "green") {
-      statusDesc = "¡Excelente! Tu CV cuenta con una calidad sobresaliente.";
+      statusDesc = "La lectura y extracción del CV fue sumamente clara y completa.";
     } else if (status === "red") {
-      statusDesc = "Atención: detectamos múltiples problemas críticos de lectura y formato.";
+      statusDesc = "Atención: detectamos múltiples problemas críticos para leer y extraer el texto de tu CV.";
     } else if (status === "yellow") {
-      statusDesc = "Buen potencial. Con algunos ajustes clave, puedes aumentar considerablemente su impacto.";
+      statusDesc = "La lectura fue exitosa, pero detectamos posibles detalles de extracción o formato en el documento.";
     }
     return `${statusDesc} ${msg || ""}`.trim();
   };
@@ -2037,178 +2284,248 @@ function DiagnosisScreen({
 
   return (
     <ScreenShell>
-      <BackHeader onBack={onBack} />
-      <section className="px-5 pt-3.5 text-center">
-        <Badge icon={<Sparkles className="h-4 w-4" />}>Diagnóstico gratuito</Badge>
-        <h1 className="mt-3 text-[28px] font-black leading-none tracking-[-0.035em] min-[390px]:text-[31px]">Tu diagnóstico</h1>
-        <p className="mt-2 text-[14px] font-medium text-[#626a79]">Detectamos oportunidades de mejora en tu CV.</p>
-      </section>
+      <motion.div variants={stagger} initial="initial" animate="animate" className="space-y-4 pb-2">
+        <motion.div variants={fadeUp}>
+          <BackHeader onBack={onBack} />
+        </motion.div>
 
-      <section className="px-5 pt-3 pb-4">
-        <div className="grid grid-cols-1 items-center gap-3 rounded-[12px] border border-[#e4e9f0] bg-white p-3 text-center shadow-[0_6px_16px_rgba(15,25,55,0.04)]">
-          <ProgressRing value={score} mode="score" size={96} />
-          <div className="border-t border-[#e8edf4] pt-3 text-left">
-            <h2 className="text-[17px] font-black leading-tight">{scoreTitle}</h2>
-            <p className="mt-2 text-[13.5px] font-medium leading-5 text-[#626a79]">
-              {getSubtitleText(analysis.qualityStatus, userMessage)}
-            </p>
+        <motion.section variants={fadeUp} className="px-5 pt-1.5 text-center">
+          <Badge icon={<Sparkles className="h-4 w-4" />}>Diagnóstico gratuito</Badge>
+          <h1 className="mt-3 text-[28px] font-black leading-none tracking-[-0.035em] min-[390px]:text-[31px]">Tu diagnóstico</h1>
+          <p className="mt-2 text-[14px] font-medium text-[#626a79]">Detectamos oportunidades de mejora en tu CV.</p>
+        </motion.section>
+
+        <motion.section variants={fadeUp} className="px-5 pt-1 pb-1">
+          <div className="grid grid-cols-1 items-center gap-3 rounded-[12px] border border-[#e4e9f0] bg-white p-3 text-center shadow-[0_6px_16px_rgba(15,25,55,0.04)]">
+            <ProgressRing value={score} mode="score" size={96} />
+            <div className="border-t border-[#e8edf4] pt-3 text-left space-y-2">
+              <h2 className="text-[17px] font-black leading-tight">
+                {analysis.diagnosis?.headline || scoreTitle}
+              </h2>
+              <p className="text-[13.5px] font-medium leading-5 text-[#626a79]">
+                {analysis.diagnosis?.summary || getSubtitleText(analysis.qualityStatus, userMessage)}
+              </p>
+            </div>
           </div>
-        </div>
-
-        {note ? <p className="mt-3 rounded-[10px] bg-[#fff7e9] px-3.5 py-2.5 text-[13px] font-bold leading-5 text-[#935a12]">{note}</p> : null}
-
-        <SectionTitle number="1" title="Problemas detectados" />
-        {(!analysis.problems || analysis.problems.length === 0) ? (
-          <div className="rounded-[12px] border border-[#e4e9f0] bg-white p-3.5 text-center shadow-[0_5px_12px_rgba(15,25,55,0.04)]">
-            <p className="text-[13.5px] font-medium text-[#129853]">No detectamos problemas críticos, solo oportunidades de mejora.</p>
-          </div>
-        ) : (
-          <div className="rounded-[11px] border border-[#e4e9f0] bg-white shadow-[0_5px_12px_rgba(15,25,55,0.04)]">
-            {problemRows(analysis).map((item) => <ProblemLine key={item.label} {...item} />)}
-          </div>
-        )}
-
-        <SectionTitle number="2" title="Secciones detectadas" />
-        <div className="flex flex-wrap gap-2">
-          {hasExp && <Chip ok>Experiencia</Chip>}
-          {hasEdu && <Chip ok>Educación</Chip>}
-          {hasSkills && <Chip ok>Habilidades</Chip>}
-          {hasProj && <Chip ok>Proyectos</Chip>}
-          {hasCert && <Chip ok>Certificaciones</Chip>}
-          {analysis.missingSections && analysis.missingSections.map((section) => (
-            <Chip key={section} warn>Falta: {section}</Chip>
-          ))}
-          {!hasExp && !hasEdu && !hasSkills && !hasProj && !hasCert && (!analysis.missingSections || analysis.missingSections.length === 0) && (
-            <span className="text-[14px] text-[#626a79] font-medium">Ninguna sección detectada de forma clara.</span>
+          {analysis.diagnosis?.scoreExplanation && (
+            <div className="mt-3.5 rounded-[10px] bg-slate-50 border border-slate-100 p-3.5 text-left">
+              <h4 className="text-[12px] font-black text-[#475569] uppercase tracking-wider mb-1">Lectura del CV</h4>
+              <p className="text-[12.5px] font-medium leading-relaxed text-[#626a79]">
+                {analysis.diagnosis.scoreExplanation}
+              </p>
+            </div>
           )}
-        </div>
+        </motion.section>
 
-        <SectionTitle number="3" title="Recomendaciones clave" />
-        {(!analysis.recommendations || analysis.recommendations.length === 0) ? (
-          <div className="rounded-[12px] border border-[#e4e9f0] bg-white p-3.5 text-center shadow-[0_5px_12px_rgba(15,25,55,0.04)]">
-            <p className="text-[13.5px] font-medium text-[#626a79]">
-              Tu CV ya tiene una presentación clara. Revisa la versión mejorada antes de descargar.
-            </p>
+        {note ? (
+          <motion.div variants={fadeUp} className="px-5">
+            <p className="rounded-[10px] bg-[#fff7e9] px-3.5 py-2.5 text-[13px] font-bold leading-5 text-[#935a12]">{note}</p>
+          </motion.div>
+        ) : null}
+
+        <motion.section variants={fadeUp} className="px-5">
+          <SectionTitle number="1" title="Problemas detectados" />
+          {(!analysis.problems || analysis.problems.length === 0) ? (
+            <div className="rounded-[12px] border border-[#e4e9f0] bg-white p-3.5 text-center shadow-[0_5px_12px_rgba(15,25,55,0.04)]">
+              <p className="text-[13.5px] font-medium text-[#129853]">No detectamos problemas críticos, solo oportunidades de mejora.</p>
+            </div>
+          ) : (
+            <div className="rounded-[11px] border border-[#e4e9f0] bg-white shadow-[0_5px_12px_rgba(15,25,55,0.04)]">
+              {problemRows(analysis).map((item) => <ProblemLine key={item.label} {...item} />)}
+            </div>
+          )}
+        </motion.section>
+
+        <motion.section variants={fadeUp} className="px-5">
+          <SectionTitle number="2" title="Secciones detectadas" />
+          <div className="flex flex-wrap gap-2">
+            {hasExp && <Chip ok>Experiencia</Chip>}
+            {hasEdu && <Chip ok>Educación</Chip>}
+            {hasSkills && <Chip ok>Habilidades</Chip>}
+            {hasProj && <Chip ok>Proyectos</Chip>}
+            {hasCert && <Chip ok>Certificaciones</Chip>}
+            {analysis.missingSections && analysis.missingSections.map((section) => (
+              <Chip key={section} warn>Falta: {section}</Chip>
+            ))}
+            {!hasExp && !hasEdu && !hasSkills && !hasProj && !hasCert && (!analysis.missingSections || analysis.missingSections.length === 0) && (
+              <span className="text-[14px] text-[#626a79] font-medium">Ninguna sección detectada de forma clara.</span>
+            )}
           </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-2">
-            {analysis.recommendations.map((reco, index) => {
-              const { title, desc } = parseRecommendation(reco, index);
-              const icon = getRecoIcon(index, reco);
-              return (
-                <RecoCard key={index} icon={icon} title={title}>
-                  {desc}
-                </RecoCard>
-              );
-            })}
-          </div>
-        )}
+        </motion.section>
+
+        <motion.section variants={fadeUp} className="px-5">
+          <SectionTitle number="3" title="Recomendaciones clave" />
+          {analysis.diagnosis?.recommendationCards && analysis.diagnosis.recommendationCards.length > 0 ? (
+            <div className="grid grid-cols-1 gap-2">
+              {analysis.diagnosis.recommendationCards.map((card, index) => {
+                const icon = getRecoIcon(index, card.title + " " + card.description);
+                return (
+                  <RecoCard key={index} icon={icon} title={card.title}>
+                    {card.description}
+                  </RecoCard>
+                );
+              })}
+            </div>
+          ) : (!analysis.recommendations || analysis.recommendations.length === 0) ? (
+            <div className="rounded-[12px] border border-[#e4e9f0] bg-white p-3.5 text-center shadow-[0_5px_12px_rgba(15,25,55,0.04)]">
+              <p className="text-[13.5px] font-medium text-[#626a79]">
+                Tu CV ya tiene una presentación clara. Revisa la versión mejorada antes de descargar.
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-2">
+              {analysis.recommendations.map((reco, index) => {
+                const { title, desc } = parseRecommendation(reco, index);
+                const icon = getRecoIcon(index, reco);
+                return (
+                  <RecoCard key={index} icon={icon} title={title}>
+                    {desc}
+                  </RecoCard>
+                );
+              })}
+            </div>
+          )}
+        </motion.section>
 
         {analysis.extractionWarnings && analysis.extractionWarnings.length > 0 && (
-          <div className="mt-3.5 rounded-[10px] border border-[#ffe2bd] bg-[#fffaf4] p-3 text-left">
-            <h3 className="flex items-center gap-2 text-[14px] font-black text-[#a86315]">
-              <AlertTriangle className="h-4 w-4 shrink-0 text-[#d48624]" />
-              Advertencias de lectura
-            </h3>
-            <ul className="mt-2 list-disc list-inside space-y-1 text-[13px] font-medium leading-5 text-[#73400a]">
-              {analysis.extractionWarnings.map((warn, i) => (
-                <li key={i}>{warn}</li>
-              ))}
-            </ul>
-          </div>
+          <motion.div variants={fadeUp} className="px-5">
+            <div className="rounded-[10px] border border-[#ffe2bd] bg-[#fffaf4] p-3 text-left">
+              <h3 className="flex items-center gap-2 text-[14px] font-black text-[#a86315]">
+                <AlertTriangle className="h-4 w-4 shrink-0 text-[#d48624]" />
+                Advertencias de lectura
+              </h3>
+              <ul className="mt-2 list-disc list-inside space-y-1 text-[13px] font-medium leading-5 text-[#73400a]">
+                {analysis.extractionWarnings.map((warn, i) => (
+                  <li key={i}>{warn}</li>
+                ))}
+              </ul>
+            </div>
+          </motion.div>
         )}
 
         {analysis.dataIntegrityWarnings && analysis.dataIntegrityWarnings.length > 0 && (
-          <div className="mt-3 rounded-[10px] border border-[#e4e9f0] bg-[#f8fafc] p-3 text-left">
-            <h3 className="flex items-center gap-2 text-[14px] font-black text-[#475569]">
-              <ShieldCheck className="h-4 w-4 shrink-0 text-[#64748b]" />
-              Datos que debes revisar
-            </h3>
-            <ul className="mt-2 list-disc list-inside space-y-1 text-[13px] font-medium leading-5 text-[#475569]">
-              {analysis.dataIntegrityWarnings.map((warn, i) => (
-                <li key={i}>{warn}</li>
-              ))}
-            </ul>
-          </div>
+          <motion.div variants={fadeUp} className="px-5">
+            <div className="rounded-[10px] border border-[#e4e9f0] bg-[#f8fafc] p-3 text-left">
+              <h3 className="flex items-center gap-2 text-[14px] font-black text-[#475569]">
+                <ShieldCheck className="h-4 w-4 shrink-0 text-[#64748b]" />
+                Datos que debes revisar
+              </h3>
+              <ul className="mt-2 list-disc list-inside space-y-1 text-[13px] font-medium leading-5 text-[#475569]">
+                {analysis.dataIntegrityWarnings.map((warn, i) => (
+                  <li key={i}>{warn}</li>
+                ))}
+              </ul>
+            </div>
+          </motion.div>
         )}
 
-        <SectionTitle number="4" title="Versión mejorada" />
-        <LockedPreview cv={analysis.improvedCV} />
+        <motion.section variants={fadeUp} className="px-5">
+          <SectionTitle number="4" title="Versión mejorada" />
+          <LockedPreview cv={analysis.improvedCV} />
+        </motion.section>
 
-        <button
-          disabled={!allowDownload}
-          className="mt-4 flex h-[48px] w-full items-center justify-center gap-2.5 rounded-[9px] bg-[#0068ff] text-[15px] font-black text-white shadow-[0_10px_20px_rgba(0,104,255,0.18)] transition duration-200 hover:-translate-y-0.5 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-[#9fc7ff] disabled:shadow-none"
-          onClick={onUnlock}
-        >
-          <Lock className="h-5 w-5" />
-          Desbloquear mi CV mejorado
-        </button>
-        {!allowDownload ? (
-          <p className="mt-2.5 rounded-[10px] bg-[#fff7e9] px-3 py-2 text-[13px] font-bold leading-5 text-[#935a12] text-center">
-            {userMessage}
-          </p>
-        ) : null}
+        <motion.section variants={fadeUp} className="px-5 pb-6">
+          <motion.button
+            disabled={!allowDownload}
+            className="flex h-[48px] w-full items-center justify-center gap-2.5 rounded-[9px] bg-[#0068ff] text-[15px] font-black text-white shadow-[0_10px_20px_rgba(0,104,255,0.18)] disabled:cursor-not-allowed disabled:bg-[#9fc7ff] disabled:shadow-none"
+            onClick={onUnlock}
+            whileTap={reduced ? {} : { scale: 0.985 }}
+            whileHover={reduced ? {} : { translateY: -1.5 }}
+            transition={{ duration: 0.2 }}
+          >
+            <Lock className="h-5 w-5" />
+            Desbloquear mi CV mejorado
+          </motion.button>
+          {!allowDownload ? (
+            <p className="mt-2.5 rounded-[10px] bg-[#fff7e9] px-3 py-2 text-[13px] font-bold leading-5 text-[#935a12] text-center">
+              {userMessage}
+            </p>
+          ) : null}
 
-        <div className="mt-3 grid grid-cols-1 divide-y divide-[#e2e8f0] rounded-[10px] border border-[#e7edf5] bg-white text-center text-[12px] font-medium text-[#626a79]">
-          <TrustItem icon={<FileDown className="h-5 w-5" />}>Pago único</TrustItem>
-          <TrustItem icon={<FileText className="h-5 w-5" />}>Descarga en PDF</TrustItem>
-          <TrustItem icon={<ShieldCheck className="h-5 w-5" />}>Pago seguro</TrustItem>
-        </div>
-      </section>
+          <div className="mt-3 grid grid-cols-1 divide-y divide-[#e2e8f0] rounded-[10px] border border-[#e7edf5] bg-white text-center text-[12px] font-medium text-[#626a79]">
+            <TrustItem icon={<FileDown className="h-5 w-5" />}>Pago único</TrustItem>
+            <TrustItem icon={<FileText className="h-5 w-5" />}>Descarga en PDF</TrustItem>
+            <TrustItem icon={<ShieldCheck className="h-5 w-5" />}>Pago seguro</TrustItem>
+          </div>
+        </motion.section>
+      </motion.div>
     </ScreenShell>
   );
 }
 
 function PaywallScreen({ onBack, onUnlock }: { onBack: () => void; onUnlock: () => void }) {
+  const reduced = usePrefersReducedMotion();
+  const stagger = animStagger(reduced);
+  const fadeUp = animFadeUp(reduced);
+
   return (
     <ScreenShell>
-      <BackHeader onBack={onBack} />
-      <section className="px-5 pt-3.5 text-center">
-        <h1 className="text-[28px] font-black leading-[1.1] tracking-[-0.035em] min-[390px]:text-[31px]">
-          Desbloquea tu
-          <span className="block text-[#0068ff]">CV mejorado</span>
-        </h1>
-        <p className="mt-2.5 text-[14px] font-medium text-[#626a79]">Conoce lo que ya optimizamos en tu documento.</p>
-      </section>
+      <motion.div variants={stagger} initial="initial" animate="animate" className="space-y-4">
+        <motion.div variants={fadeUp}>
+          <BackHeader onBack={onBack} />
+        </motion.div>
 
-      <section className="px-5 pt-3 pb-4">
-        <div className="grid grid-cols-1 gap-2.5 rounded-[12px] border border-[#e4e9f0] bg-white p-3 shadow-[0_6px_16px_rgba(15,25,55,0.04)]">
-          <MiniCvLocked />
-          <div className="text-left">
-            <h2 className="text-[16px] font-black">Vista final protegida</h2>
-            <p className="mt-1.5 text-[13.5px] font-medium leading-5 text-[#626a79]">Tu nueva versión está lista para ayudarte a destacar.</p>
+        <motion.section variants={fadeUp} className="px-5 pt-1.5 text-center">
+          <h1 className="text-[28px] font-black leading-[1.1] tracking-[-0.035em] min-[390px]:text-[31px]">
+            Desbloquea tu
+            <span className="block text-[#0068ff]">CV mejorado</span>
+          </h1>
+          <p className="mt-2.5 text-[14px] font-medium text-[#626a79]">Conoce lo que ya optimizamos en tu documento.</p>
+        </motion.section>
+
+        <motion.section variants={fadeUp} className="px-5 pt-1">
+          <div className="grid grid-cols-1 gap-2.5 rounded-[12px] border border-[#e4e9f0] bg-white p-3 shadow-[0_6px_16px_rgba(15,25,55,0.04)]">
+            <MiniCvLocked />
+            <div className="text-left">
+              <h2 className="text-[16px] font-black">Vista final protegida</h2>
+              <p className="mt-1.5 text-[13.5px] font-medium leading-5 text-[#626a79]">Tu nueva versión está lista para ayudarte a destacar.</p>
+            </div>
           </div>
-        </div>
+        </motion.section>
 
-        <div className="mt-3 rounded-[12px] border border-[#e4e9f0] bg-white p-3 shadow-[0_6px_16px_rgba(15,25,55,0.04)]">
-          <h2 className="text-center text-[18px] font-black">Tu nueva versión incluye</h2>
-          <FeatureLine icon={<PenLine className="h-5 w-5" />}>Resumen profesional reescrito</FeatureLine>
-          <FeatureLine icon={<Trophy className="h-5 w-5" />}>Logros más claros</FeatureLine>
-          <FeatureLine icon={<FileText className="h-5 w-5" />}>Formato limpio</FeatureLine>
-          <FeatureLine icon={<Layers3 className="h-5 w-5" />}>Secciones reorganizadas</FeatureLine>
-          <FeatureLine icon={<Search className="h-5 w-5" />}>Palabras clave reforzadas</FeatureLine>
-          <FeatureLine icon={<Download className="h-5 w-5" />}>PDF listo para descargar</FeatureLine>
-        </div>
-
-        <div className="mt-3 rounded-[12px] border border-[#e4e9f0] bg-white p-3 text-center shadow-[0_6px_16px_rgba(15,25,55,0.04)]">
-          <div className="flex flex-wrap items-end justify-center gap-x-4 gap-y-1">
-            <span className="pb-2 text-[17px] font-bold text-[#6f7682] line-through">$99 MXN</span>
-            <span className="text-[42px] font-black leading-none text-[#0068ff]">$49</span>
-            <span className="pb-2 text-[15px] font-black text-[#0068ff]">MXN</span>
+        <motion.section variants={fadeUp} className="px-5">
+          <div className="rounded-[12px] border border-[#e4e9f0] bg-white p-3 shadow-[0_6px_16px_rgba(15,25,55,0.04)]">
+            <h2 className="text-center text-[18px] font-black mb-1">Tu nueva versión incluye</h2>
+            <motion.div variants={stagger} initial="initial" animate="animate" className="divide-y divide-[#edf0f5]">
+              <motion.div variants={fadeUp}><FeatureLine icon={<PenLine className="h-5 w-5" />}>Resumen profesional reescrito</FeatureLine></motion.div>
+              <motion.div variants={fadeUp}><FeatureLine icon={<Trophy className="h-5 w-5" />}>Logros más claros</FeatureLine></motion.div>
+              <motion.div variants={fadeUp}><FeatureLine icon={<FileText className="h-5 w-5" />}>Formato limpio</FeatureLine></motion.div>
+              <motion.div variants={fadeUp}><FeatureLine icon={<Layers3 className="h-5 w-5" />}>Secciones reorganizadas</FeatureLine></motion.div>
+              <motion.div variants={fadeUp}><FeatureLine icon={<Search className="h-5 w-5" />}>Palabras clave reforzadas</FeatureLine></motion.div>
+              <motion.div variants={fadeUp}><FeatureLine icon={<Download className="h-5 w-5" />}>PDF listo para descargar</FeatureLine></motion.div>
+            </motion.div>
           </div>
-          <p className="mt-0.5 text-[13.5px] font-medium text-[#626a79]">Pago único · Sin suscripciones</p>
-          <button className="mt-3 flex h-[48px] w-full items-center justify-center gap-2.5 rounded-[9px] bg-[#0068ff] text-[15px] font-black text-white transition duration-200 hover:-translate-y-0.5 active:scale-[0.98]" onClick={onUnlock}>
-            Desbloquear mi CV profesional
-            <ArrowRight className="h-5 w-5" />
-          </button>
-        </div>
+        </motion.section>
 
-        <div className="mt-3 grid grid-cols-1 divide-y divide-[#e2e8f0] rounded-[10px] border border-[#e7edf5] bg-white text-center text-[11px] font-black text-[#070b2f]">
-          <TrustItem icon={<ShieldCheck className="h-5 w-5" />}>Pago único</TrustItem>
-          <TrustItem icon={<Sparkles className="h-5 w-5" />}>Entrega inmediata</TrustItem>
-          <TrustItem icon={<Lock className="h-5 w-5" />}>Tus datos están protegidos</TrustItem>
-        </div>
-      </section>
+        <motion.section variants={fadeUp} className="px-5">
+          <div className="rounded-[12px] border border-[#e4e9f0] bg-white p-3 text-center shadow-[0_6px_16px_rgba(15,25,55,0.04)]">
+            <div className="flex flex-wrap items-end justify-center gap-x-4 gap-y-1">
+              <span className="pb-2 text-[17px] font-bold text-[#6f7682] line-through">$99 MXN</span>
+              <span className="text-[42px] font-black leading-none text-[#0068ff]">$49</span>
+              <span className="pb-2 text-[15px] font-black text-[#0068ff]">MXN</span>
+            </div>
+            <p className="mt-0.5 text-[13.5px] font-medium text-[#626a79]">Pago único · Sin suscripciones</p>
+            <motion.button 
+              className="mt-3 flex h-[48px] w-full items-center justify-center gap-2.5 rounded-[9px] bg-[#0068ff] text-[15px] font-black text-white shadow-[0_10px_20px_rgba(0,104,255,0.18)]" 
+              onClick={onUnlock}
+              whileTap={reduced ? {} : { scale: 0.985 }}
+              whileHover={reduced ? {} : { translateY: -1.5 }}
+              transition={{ duration: 0.2 }}
+            >
+              Desbloquear mi CV profesional
+              <ArrowRight className="h-5 w-5" />
+            </motion.button>
+          </div>
+        </motion.section>
+
+        <motion.section variants={fadeUp} className="px-5 pb-6">
+          <div className="grid grid-cols-1 divide-y divide-[#e2e8f0] rounded-[10px] border border-[#e7edf5] bg-white text-center text-[11px] font-black text-[#070b2f]">
+            <TrustItem icon={<ShieldCheck className="h-5 w-5" />}>Pago único</TrustItem>
+            <TrustItem icon={<Sparkles className="h-5 w-5" />}>Entrega inmediata</TrustItem>
+            <TrustItem icon={<Lock className="h-5 w-5" />}>Tus datos están protegidos</TrustItem>
+          </div>
+        </motion.section>
+      </motion.div>
     </ScreenShell>
   );
 }
@@ -2226,69 +2543,140 @@ function SuccessScreen({
   onHome: () => void;
   onPdf: () => void;
 }) {
+  const reduced = usePrefersReducedMotion();
+  const stagger = animStagger(reduced);
+  const fadeUp = animFadeUp(reduced);
+
   return (
     <ScreenShell>
-      <header className="flex items-center justify-between gap-2.5 px-5 pt-4">
-        <BrandLogo />
-        <button className="flex h-[38px] shrink-0 items-center gap-1.5 rounded-[6px] border border-[#cad8e8] bg-white px-2.5 text-[13.5px] font-black text-[#0c55b8]" onClick={onHome}>
-          <Home className="h-4 w-4" />
-          Ir al inicio
-        </button>
-      </header>
+      <motion.div variants={stagger} initial="initial" animate="animate" className="space-y-4">
+        <motion.div variants={fadeUp}>
+          <header className="flex items-center justify-between gap-2.5 px-5 pt-4">
+            <BrandLogo />
+            <motion.button 
+              className="flex h-[38px] shrink-0 items-center gap-1.5 rounded-[6px] border border-[#cad8e8] bg-white px-2.5 text-[13.5px] font-black text-[#0c55b8]" 
+              onClick={onHome}
+              whileTap={reduced ? {} : { scale: 0.96 }}
+            >
+              <Home className="h-4 w-4" />
+              Ir al inicio
+            </motion.button>
+          </header>
+        </motion.div>
 
-      <section className="px-5 pt-4 text-center">
-        <div className="mx-auto grid h-[72px] w-[72px] place-items-center rounded-full bg-[#e4f9ef] text-[#0fbd68] shadow-[0_0_0_9px_rgba(228,249,239,0.45)]">
-          <Check className="h-9 w-9" strokeWidth={5} />
-        </div>
-        <h1 className="mt-5 text-[28px] font-black leading-none tracking-[-0.035em] min-[390px]:text-[31px]">¡Tu CV está listo!</h1>
-        <p className="mt-2.5 text-[14px] font-medium text-[#626a79]">Hemos generado tu versión mejorada.</p>
-      </section>
+        <motion.section variants={fadeUp} className="px-5 pt-1.5 text-center flex flex-col items-center">
+          {/* Pulsing check circle container */}
+          <motion.div 
+            className="grid h-[72px] w-[72px] place-items-center rounded-full bg-[#e4f9ef] text-[#0fbd68]"
+            initial={reduced ? {} : { scale: 0.3, opacity: 0 }}
+            animate={reduced ? {} : { 
+              scale: 1, 
+              opacity: 1,
+              boxShadow: [
+                "0 0 0 9px rgba(228,249,239,0.45)",
+                "0 0 0 16px rgba(228,249,239,0)",
+                "0 0 0 9px rgba(228,249,239,0.45)"
+              ]
+            }}
+            transition={reduced ? {} : { 
+              scale: { type: "spring", stiffness: 200, damping: 15 },
+              opacity: { duration: 0.2 },
+              boxShadow: { repeat: Infinity, duration: 2.2, ease: "easeInOut" }
+            }}
+          >
+            <motion.span
+              initial={reduced ? {} : { scale: 0 }}
+              animate={reduced ? {} : { scale: 1 }}
+              transition={reduced ? {} : { delay: 0.15, type: "spring", stiffness: 300, damping: 12 }}
+              className="flex items-center justify-center"
+            >
+              <Check className="h-9 w-9" strokeWidth={5} />
+            </motion.span>
+          </motion.div>
+          <h1 className="mt-5 text-[28px] font-black leading-none tracking-[-0.035em] min-[390px]:text-[31px]">¡Tu CV está listo!</h1>
+          <p className="mt-2.5 text-[14px] font-medium text-[#626a79]">Hemos generado tu versión mejorada.</p>
+        </motion.section>
 
-      <section className="px-5 pt-4 pb-4">
-        <div className="flex items-center gap-2.5 rounded-[12px] border border-[#e4e9f0] bg-white p-3 shadow-[0_6px_16px_rgba(15,25,55,0.04)]">
-          <PdfIcon large />
-          <div className="min-w-0 flex-1 text-left">
-            <p className="truncate text-[15px] font-black min-[390px]:text-[17px]">
-              CV_Optimizado_{(analysis?.improvedCV?.name || "usuario").replace(/\s+/g, "_")}.pdf
-            </p>
-            <span className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-[#dff8ec] px-2.5 py-1 text-[12px] font-black text-[#129853]">
-              <CheckCircle2 className="h-4 w-4" />
-              Generado
-            </span>
+        <motion.section variants={fadeUp} className="px-5 pt-1 pb-4">
+          <div className="flex items-center gap-2.5 rounded-[12px] border border-[#e4e9f0] bg-white p-3 shadow-[0_6px_16px_rgba(15,25,55,0.04)]">
+            <PdfIcon large />
+            <div className="min-w-0 flex-1 text-left">
+              <p className="truncate text-[15px] font-black min-[390px]:text-[17px]">
+                CV_Optimizado_{(analysis?.improvedCV?.name || "usuario").replace(/\s+/g, "_")}.pdf
+              </p>
+              <span className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-[#dff8ec] px-2.5 py-1 text-[12px] font-black text-[#129853]">
+                <CheckCircle2 className="h-4 w-4" />
+                Generado
+              </span>
+            </div>
           </div>
-        </div>
 
-        <div className="mt-4 space-y-2.5">
-          <button className="flex h-[48px] w-full items-center justify-center gap-2.5 rounded-[9px] bg-[#0068ff] text-[15px] font-black text-white shadow-[0_10px_20px_rgba(0,104,255,0.18)] transition duration-200 hover:-translate-y-0.5 active:scale-[0.98]" onClick={onPdf} disabled={!analysis.deliveryDecision.allowDownload}>
-            <Download className="h-5 w-5" />
-            Descargar PDF
-          </button>
-          <button className="flex h-[46px] w-full items-center justify-center gap-2.5 rounded-[9px] border border-[#0068ff] bg-white text-[15px] font-black text-[#0068ff] transition duration-200 hover:-translate-y-0.5 active:scale-[0.98]" onClick={onDoc}>
-            <FileDown className="h-5 w-5" />
-            Descargar DOCX
-          </button>
-        </div>
+          <div className="mt-4 space-y-2.5">
+            <motion.button 
+              className="flex h-[48px] w-full items-center justify-center gap-2.5 rounded-[9px] bg-[#0068ff] text-[15px] font-black text-white shadow-[0_10px_20px_rgba(0,104,255,0.18)] disabled:opacity-50 disabled:cursor-not-allowed" 
+              onClick={onPdf} 
+              disabled={!analysis.deliveryDecision.allowDownload}
+              whileTap={reduced ? {} : { scale: 0.985 }}
+              whileHover={reduced ? {} : { translateY: -1.5 }}
+              transition={{ duration: 0.2 }}
+            >
+              <Download className="h-5 w-5" />
+              Descargar PDF
+            </motion.button>
+            <motion.button 
+              className="flex h-[46px] w-full items-center justify-center gap-2.5 rounded-[9px] border border-[#0068ff] bg-white text-[15px] font-black text-[#0068ff]" 
+              onClick={onDoc}
+              whileTap={reduced ? {} : { scale: 0.985 }}
+              whileHover={reduced ? {} : { translateY: -1.5 }}
+              transition={{ duration: 0.2 }}
+            >
+              <FileDown className="h-5 w-5" />
+              Descargar DOCX
+            </motion.button>
+          </div>
 
-        <h2 className="mt-5 text-center text-[18px] font-black">Qué mejoramos</h2>
-        <div className="mt-3 grid grid-cols-1 gap-2.5">
-          <ImprovedCard icon={<FileText className="h-7 w-7" />} title="Resumen optimizado">Reescribimos tu perfil para hacerlo más claro, impactante y relevante.</ImprovedCard>
-          <ImprovedCard icon={<BarChart3 className="h-7 w-7" />} title="Logros reforzados" tone="green">Destacamos tus resultados con métricas y verbos de alto impacto.</ImprovedCard>
-          <ImprovedCard icon={<Layers3 className="h-7 w-7" />} title="Formato limpio" tone="purple">Diseño profesional, escaneable y optimizado para los ATS.</ImprovedCard>
-        </div>
+          <h2 className="mt-5 text-center text-[18px] font-black text-left">Qué mejoramos</h2>
+          <div className="mt-3 grid grid-cols-1 gap-2.5">
+            {analysis.diagnosis?.improvementsMade && analysis.diagnosis.improvementsMade.length > 0 ? (
+              analysis.diagnosis.improvementsMade.map((imp, index) => {
+                const icon = getRecoIcon(index, imp.title + " " + imp.description);
+                const tones: ("blue" | "green" | "purple")[] = ["blue", "green", "purple"];
+                const tone = tones[index % tones.length];
+                return (
+                  <ImprovedCard 
+                    key={index} 
+                    icon={icon} 
+                    title={imp.title} 
+                    tone={tone}
+                  >
+                    {imp.description}
+                  </ImprovedCard>
+                );
+              })
+            ) : (
+              <>
+                <ImprovedCard icon={<FileText className="h-7 w-7" />} title="Resumen optimizado">Reescribimos tu perfil para hacerlo más claro, impactante y relevante.</ImprovedCard>
+                <ImprovedCard icon={<BarChart3 className="h-7 w-7" />} title="Logros reforzados" tone="green">Destacamos tus resultados con métricas y verbos de alto impacto.</ImprovedCard>
+                <ImprovedCard icon={<Layers3 className="h-7 w-7" />} title="Formato limpio" tone="purple">Diseño profesional, escaneable y optimizado para los ATS.</ImprovedCard>
+              </>
+            )}
+          </div>
 
-        <ProtectedNote className="mt-5" />
-        <p className="sr-only">Archivo original: {fileName}</p>
-      </section>
+          <ProtectedNote className="mt-5" />
+          <p className="sr-only">Archivo original: {fileName}</p>
+        </motion.section>
+      </motion.div>
     </ScreenShell>
   );
 }
 
 function ScreenShell({ children }: { children: ReactNode }) {
+  const reduced = usePrefersReducedMotion();
   return (
     <motion.div
-      initial={{ opacity: 0, y: 14, filter: "blur(6px)" }}
-      animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-      transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
+      initial={{ opacity: 0, y: reduced ? 0 : 14, filter: reduced ? "none" : "blur(6px)" }}
+      animate={{ opacity: 1, y: 0, filter: "none" }}
+      transition={{ duration: reduced ? 0.15 : 0.38, ease: [0.22, 1, 0.36, 1] }}
       className="min-h-screen bg-white"
     >
       {children}
@@ -2415,20 +2803,53 @@ function HomeScoreCard() {
 }
 
 function ProgressRing({ value, mode, size }: { value: number; mode: "score" | "percent"; size: number }) {
+  const reduced = usePrefersReducedMotion();
+  const [animatedValue, setAnimatedValue] = useState(0);
+
+  useEffect(() => {
+    if (mode === "percent" || reduced) {
+      setAnimatedValue(value);
+      return;
+    }
+    let start = 0;
+    const end = value;
+    if (start === end) {
+      setAnimatedValue(value);
+      return;
+    }
+    const duration = 1200; // 1.2 seconds for full count up
+    const startTime = performance.now();
+    
+    let animationFrameId: number;
+    const animate = (currentTime: number) => {
+      const elapsed = currentTime - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      // Ease out quad: f(t) = t * (2 - t)
+      const easeProgress = progress * (2 - progress);
+      setAnimatedValue(Math.round(start + easeProgress * (end - start)));
+      
+      if (progress < 1) {
+        animationFrameId = requestAnimationFrame(animate);
+      }
+    };
+    animationFrameId = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(animationFrameId);
+  }, [value, mode, reduced]);
+
   const inner = size - 20;
   const numSize = size < 110 ? "text-[28px]" : mode === "percent" ? "text-[36px]" : "text-[32px]";
   const pctSize = size < 110 ? "text-[16px]" : "text-[19px]";
   const lblSize = size < 110 ? "text-[12px] mt-0.5" : "text-[14px] mt-1";
   return (
-    <div className="mx-auto grid place-items-center rounded-full" style={{ width: size, height: size, background: `conic-gradient(${blue} 0deg ${value * 3.6}deg, #e8f1ff ${value * 3.6}deg 360deg)` }}>
+    <div className="mx-auto grid place-items-center rounded-full transition-all duration-300" style={{ width: size, height: size, background: `conic-gradient(${blue} 0deg ${animatedValue * 3.6}deg, #e8f1ff ${animatedValue * 3.6}deg 360deg)` }}>
       <div className="grid place-items-center rounded-full bg-white" style={{ width: inner, height: inner }}>
-        <div className="text-center">
+        <div className="text-center select-none">
           <p className={`${numSize} font-black leading-none tracking-[-0.04em]`}>
-            {value}
+            {animatedValue}
             {mode === "percent" ? <span className={pctSize}>%</span> : null}
           </p>
           <p className={`${lblSize} font-medium text-[#626a79]`}>
-            {mode === "percent" ? (value === 100 ? "¡Listo!" : "Analizando...") : "/100"}
+            {mode === "percent" ? (animatedValue === 100 ? "¡Listo!" : "Analizando...") : "/100"}
           </p>
         </div>
       </div>
@@ -2519,19 +2940,34 @@ function PdfIcon({ large = false }: { large?: boolean }) {
 }
 
 function TimelineStep({ active, children, done, number, title }: { active?: boolean; children: ReactNode; done?: boolean; number: string; title: string }) {
+  const reduced = usePrefersReducedMotion();
   return (
-    <div className="grid grid-cols-[28px_1fr] gap-2.5 pb-4 last:pb-0">
+    <motion.div 
+      className="grid grid-cols-[28px_1fr] gap-2.5 pb-4 last:pb-0"
+      animate={active && !reduced ? { x: 3, scale: 1.01 } : { x: 0, scale: 1 }}
+      transition={{ duration: 0.3 }}
+    >
       <div className="relative flex justify-center">
         {number !== "4" ? <span className="absolute top-7 h-full w-px bg-[#d6f2e5]" /> : null}
-        <span className={`relative z-10 grid h-7 w-7 place-items-center rounded-full text-[13px] font-black ${done ? "bg-[#9ff0c8] text-[#0f9f57]" : active ? "border-[3px] border-[#0068ff] bg-white text-[#0068ff]" : "bg-[#eef2f7] text-[#6f7682]"}`}>
-          {done ? <Check className="h-4 w-4" strokeWidth={4} /> : active ? "" : number}
-        </span>
+        <motion.span 
+          className={`relative z-10 grid h-7 w-7 place-items-center rounded-full text-[13px] font-black ${done ? "bg-[#9ff0c8] text-[#0f9f57]" : active ? "border-[3px] border-[#0068ff] bg-white text-[#0068ff]" : "bg-[#eef2f7] text-[#6f7682]"}`}
+          animate={active && !reduced ? { scale: [1, 1.08, 1] } : { scale: 1 }}
+          transition={{ repeat: active ? Infinity : 0, duration: 1.5, ease: "easeInOut" }}
+        >
+          {done ? (
+            <motion.span initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 300, damping: 15 }}>
+              <Check className="h-4 w-4" strokeWidth={4} />
+            </motion.span>
+          ) : active ? (
+            <motion.span className="h-2 w-2 rounded-full bg-[#0068ff]" animate={{ scale: [1, 1.4, 1] }} transition={{ repeat: Infinity, duration: 1.2 }} />
+          ) : number}
+        </motion.span>
       </div>
       <div>
-        <h3 className={`text-[15px] font-black leading-5 min-[390px]:text-[16px] ${active ? "text-[#0068ff]" : "text-[#070b2f]"}`}>{number}.&nbsp;&nbsp;{title}</h3>
+        <h3 className={`text-[15px] font-black leading-5 min-[390px]:text-[16px] transition-colors duration-300 ${active ? "text-[#0068ff]" : "text-[#070b2f]"}`}>{number}.&nbsp;&nbsp;{title}</h3>
         <p className="mt-0.5 text-[12.5px] font-medium leading-5 text-[#626a79]">{children}</p>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -2589,17 +3025,27 @@ function Chip({ children, ok, warn }: { children: ReactNode; ok?: boolean; warn?
 }
 
 function RecoCard({ children, icon, title }: { children: ReactNode; icon: ReactNode; title: string }) {
+  const reduced = usePrefersReducedMotion();
   return (
-    <div className="rounded-[10px] border border-[#e4e9f0] bg-white p-3 shadow-[0_5px_12px_rgba(15,25,55,0.04)]">
-      <div className="grid h-8 w-8 place-items-center rounded-full bg-[#edf5ff] text-[#0068ff]">{icon}</div>
-      <h3 className="mt-2.5 text-[13.5px] font-black leading-5">{title}</h3>
-      <p className="mt-1 text-[12px] font-medium leading-4 text-[#626a79]">{children}</p>
-      <ChevronRight className="ml-auto mt-1 h-4 w-4 text-[#9ba4b2] shrink-0" />
-    </div>
+    <motion.div 
+      className="rounded-[10px] border border-[#e4e9f0] bg-white p-3 shadow-[0_5px_12px_rgba(15,25,55,0.04)] text-left cursor-pointer transition-colors duration-200 hover:border-[#0068ff]/30"
+      whileTap={reduced ? {} : { scale: 0.98 }}
+      whileHover={reduced ? {} : { translateY: -1.5, boxShadow: "0 8px 18px rgba(15,25,55,0.06)" }}
+    >
+      <div className="flex items-start gap-2.5">
+        <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#edf5ff] text-[#0068ff]">{icon}</div>
+        <div className="min-w-0 flex-1">
+          <h3 className="text-[13.5px] font-black leading-5 text-[#070b2f]">{title}</h3>
+          <p className="mt-1 text-[12px] font-medium leading-4 text-[#626a79]">{children}</p>
+        </div>
+        <ChevronRight className="h-4 w-4 text-[#9ba4b2] shrink-0 self-center" />
+      </div>
+    </motion.div>
   );
 }
 
 function LockedPreview({ cv }: { cv: ImprovedCV }) {
+  const reduced = usePrefersReducedMotion();
   const firstExp = cv?.experience && cv.experience[0];
   return (
     <div className="relative grid grid-cols-1 overflow-hidden rounded-[12px] border border-[#d9e4f1] bg-white shadow-[0_6px_16px_rgba(15,25,55,0.04)]">
@@ -2608,7 +3054,7 @@ function LockedPreview({ cv }: { cv: ImprovedCV }) {
       </div>
       
       {/* Partially Blurred Real CV Content */}
-      <div className="relative select-none p-4 text-left blur-[2px] opacity-75">
+      <div className="relative select-none p-4 text-left blur-[2px] opacity-75 overflow-hidden">
         <div className="flex items-center gap-3">
           <div className="h-10 w-10 rounded-full bg-[#edf5ff] flex items-center justify-center font-black text-[#0068ff] text-base shrink-0">
             {cv?.name ? cv.name.charAt(0).toUpperCase() : "U"}
@@ -2645,19 +3091,33 @@ function LockedPreview({ cv }: { cv: ImprovedCV }) {
             </div>
           </div>
         )}
+
+        {/* Shimmer overlay over blurred text */}
+        {!reduced && (
+          <motion.div 
+            className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent"
+            animate={{ x: ["-100%", "100%"] }}
+            transition={{ repeat: Infinity, duration: 2.2, ease: "linear" }}
+          />
+        )}
       </div>
       
       {/* Centered Lock Icon */}
       <div className="absolute inset-0 bg-white/10 backdrop-blur-[1px] flex items-center justify-center">
-        <div className="grid h-12 w-12 place-items-center rounded-full bg-white text-[#0068ff] shadow-[0_12px_32px_rgba(0,104,255,0.22)] border border-[#e2e8f0]">
+        <motion.div 
+          className="grid h-12 w-12 place-items-center rounded-full bg-white text-[#0068ff] shadow-[0_12px_32px_rgba(0,104,255,0.22)] border border-[#e2e8f0]"
+          animate={reduced ? {} : { scale: [1, 1.08, 1] }}
+          transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}
+        >
           <Lock className="h-6 w-6" />
-        </div>
+        </motion.div>
       </div>
     </div>
   );
 }
 
 function MiniCvLocked() {
+  const reduced = usePrefersReducedMotion();
   return (
     <div className="relative overflow-hidden rounded-[10px] bg-white p-4 blur-[1.8px]">
       <div className="h-9 w-9 rounded-full bg-[#d6dbe3]" />
@@ -2668,6 +3128,15 @@ function MiniCvLocked() {
         <span className="block h-2 w-10/12 rounded bg-[#dbe2ec]" />
         <span className="block h-2 w-11/12 rounded bg-[#dbe2ec]" />
       </div>
+
+      {/* Shimmer Overlay */}
+      {!reduced && (
+        <motion.div 
+          className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent"
+          animate={{ x: ["-100%", "100%"] }}
+          transition={{ repeat: Infinity, duration: 1.8, ease: "linear" }}
+        />
+      )}
     </div>
   );
 }
