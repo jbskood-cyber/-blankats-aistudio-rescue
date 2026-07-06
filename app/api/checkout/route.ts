@@ -2,6 +2,42 @@ import { NextRequest, NextResponse } from "next/server";
 import { MercadoPagoConfig, Preference } from "mercadopago";
 import { createOrder } from "../../../lib/orders-store";
 
+function safeErrorDetails(error: unknown) {
+  const raw = error instanceof Error ? error.message : String(error);
+  const secrets = [
+    process.env.MERCADO_PAGO_ACCESS_TOKEN,
+    process.env.SUPABASE_SERVICE_ROLE_KEY,
+    process.env.SUPABASE_ANON_KEY,
+  ].filter(Boolean) as string[];
+
+  let message = raw;
+  for (const secret of secrets) {
+    message = message.split(secret).join("[redacted]");
+  }
+
+  return message
+    .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [redacted]")
+    .replace(/(access_token|token|apikey|api_key|service_role_key|authorization)=([^&\s]+)/gi, "$1=[redacted]")
+    .slice(0, 300);
+}
+
+function getAppUrl(req: NextRequest) {
+  const host = req.headers.get("host") || "localhost:3000";
+  let protocol = req.headers.get("x-forwarded-proto") || "http";
+  if (!host.includes("localhost") && !host.includes("127.0.0.1")) {
+    protocol = "https";
+  }
+
+  let appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  if (!appUrl || appUrl.trim() === "" || appUrl === "MY_APP_URL" || !appUrl.startsWith("http")) {
+    appUrl = `${protocol}://${host}`;
+  } else if (appUrl.startsWith("http://") && !appUrl.includes("localhost") && !appUrl.includes("127.0.0.1")) {
+    appUrl = appUrl.replace("http://", "https://");
+  }
+
+  return appUrl;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { analysis, improvedCV, fileName, customerEmail } = await req.json();
@@ -13,39 +49,37 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Generate a unique order ID
     const orderId = crypto.randomUUID();
     const downloadToken = crypto.randomUUID();
-
-    // Determine application base URL dynamically
-    const host = req.headers.get("host") || "localhost:3000";
-    let protocol = req.headers.get("x-forwarded-proto") || "http";
-    if (!host.includes("localhost") && !host.includes("127.0.0.1")) {
-      protocol = "https";
-    }
-    let appUrl = process.env.NEXT_PUBLIC_APP_URL;
-    if (!appUrl || appUrl.trim() === "" || appUrl === "MY_APP_URL" || !appUrl.startsWith("http")) {
-      appUrl = `${protocol}://${host}`;
-    } else if (appUrl.startsWith("http://") && !appUrl.includes("localhost") && !appUrl.includes("127.0.0.1")) {
-      appUrl = appUrl.replace("http://", "https://");
-    }
+    const appUrl = getAppUrl(req);
 
     let preferenceId: string | null = null;
     let initPoint: string | null = null;
 
     const mpToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
+    const hasMercadoPagoToken = Boolean(
+      mpToken && mpToken.trim() !== "" && mpToken !== "YOUR_MERCADO_PAGO_ACCESS_TOKEN"
+    );
     const isProduction = process.env.NODE_ENV === "production";
     const isDemoMode = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
     const allowMock = !isProduction || isDemoMode;
+    const hasSupabaseUrl = Boolean(process.env.SUPABASE_URL);
+    const hasSupabaseServiceRoleKey = Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY);
 
-    if (mpToken && mpToken.trim() !== "" && mpToken !== "YOUR_MERCADO_PAGO_ACCESS_TOKEN") {
+    if (hasMercadoPagoToken && mpToken) {
       try {
-        console.log("Initializing real Mercado Pago preference for order:", orderId);
+        console.log("Checkout configuration before Mercado Pago preference:", {
+          hasMercadoPagoToken,
+          mercadoPagoTokenLength: mpToken.length,
+          appUrl,
+          isProduction,
+          isDemoMode,
+          hasSupabaseUrl,
+          hasSupabaseServiceRoleKey,
+        });
+
         const mpClient = new MercadoPagoConfig({ accessToken: mpToken });
         const preference = new Preference(mpClient);
-
-        // Mercado Pago expects notification_url to be HTTPS for live/sandbox notifications.
-        // We set notification_url as required.
         const notificationUrl = `${appUrl}/api/mercadopago/webhook`;
 
         const response = await preference.create({
@@ -53,7 +87,7 @@ export async function POST(req: NextRequest) {
             items: [
               {
                 id: "blankats-premium",
-                title: "Optimización de CV Profesional - BlankATS",
+                title: "Optimizacion de CV Profesional - BlankATS",
                 quantity: 1,
                 unit_price: 49.00,
                 currency_id: "MXN",
@@ -72,56 +106,65 @@ export async function POST(req: NextRequest) {
 
         preferenceId = response.id || null;
         initPoint = response.init_point || null;
-      } catch (mpError: any) {
-        console.error("Failed to create real Mercado Pago preference:", mpError);
+      } catch (mpError) {
+        console.error("Failed to create real Mercado Pago preference:", safeErrorDetails(mpError));
         if (!allowMock) {
           return NextResponse.json({
-            error: "Error de configuración de pagos: No se pudo generar la preferencia de Mercado Pago en producción.",
-            details: mpError.message || String(mpError)
+            error: "checkout_mercadopago_preference_failed",
+            details: safeErrorDetails(mpError),
           }, { status: 502 });
         }
       }
-    } else {
-      if (!allowMock) {
-        return NextResponse.json({
-          error: "Error de configuración de pagos: Mercado Pago no está configurado en producción."
-        }, { status: 500 });
-      }
+    } else if (!allowMock) {
+      return NextResponse.json({
+        error: "checkout_mercadopago_preference_failed",
+        details: "Mercado Pago access token is not configured in production.",
+      }, { status: 500 });
     }
 
-    // If real Mercado Pago was not configured or failed to initialize, use Mock Checkout Simulator
     if (!initPoint) {
       if (!allowMock) {
         return NextResponse.json({
-          error: "Error de configuración de pagos: No se pudo generar la pasarela de pagos en producción."
+          error: "checkout_mercadopago_preference_failed",
+          details: "Payment gateway init point was not returned in production.",
         }, { status: 500 });
       }
-      console.log("Using Mock Checkout simulator for order:", orderId);
+      console.log("Using Mock Checkout simulator.");
       initPoint = `${appUrl}/api/checkout/mock-pay?orderId=${orderId}`;
     }
 
-    // Create pending order in database
-    await createOrder({
-      id: orderId,
-      amount: 49.00,
-      currency: "MXN",
-      status: "pending",
-      payment_provider: "mercadopago",
-      customer_email: customerEmail || null,
-      mercado_pago_preference_id: preferenceId,
-      analysis_json: analysis,
-      improved_cv_json: improvedCV,
-      original_file_name: fileName || null,
-      download_token: downloadToken,
-    });
+    try {
+      await createOrder({
+        id: orderId,
+        amount: 49.00,
+        currency: "MXN",
+        status: "pending",
+        payment_provider: "mercadopago",
+        customer_email: customerEmail || null,
+        mercado_pago_preference_id: preferenceId,
+        analysis_json: analysis,
+        improved_cv_json: improvedCV,
+        original_file_name: fileName || null,
+        download_token: downloadToken,
+      });
+    } catch (orderError) {
+      console.error("Failed to create Supabase checkout order:", safeErrorDetails(orderError));
+      return NextResponse.json({
+        error: "checkout_supabase_order_failed",
+        details: safeErrorDetails(orderError),
+      }, { status: 500 });
+    }
 
     return NextResponse.json({
       orderId,
       init_point: initPoint,
       isMock: !preferenceId,
     });
-  } catch (error: any) {
-    console.error("Error in /api/checkout:", error);
-    return NextResponse.json({ error: error.message || "Internal Server Error" }, { status: 500 });
+  } catch (error) {
+    console.error("Error in /api/checkout:", safeErrorDetails(error));
+    return NextResponse.json({
+      error: "checkout_unexpected_error",
+      details: safeErrorDetails(error),
+    }, { status: 500 });
   }
 }
