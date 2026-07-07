@@ -478,7 +478,7 @@ export default function HomePage() {
           const errData = await response.json();
           errorMessage = errData.error || errorMessage;
           if (errData.details) {
-            errorMessage += ` Detalle: ${String(errData.details).slice(0, 300)}`;
+            errorMessage = `${errorMessage}: ${String(errData.details).slice(0, 300)}`;
           }
         } catch {}
         throw new Error(errorMessage);

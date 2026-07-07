@@ -19,7 +19,6 @@
     "docx": "^9.7.1",
     "jspdf": "^4.2.1",
     "lucide-react": "^0.553.0",
-    "mercadopago": "^3.2.0",
     "motion": "^12.23.24",
     "next": "^16.2.10",
     "postcss": "^8.5.6",
