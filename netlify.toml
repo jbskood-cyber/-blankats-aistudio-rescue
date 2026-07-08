@@ -4,5 +4,5 @@
   publish = ".next"
 
 [build.environment]
-  NODE_VERSION = "22"
+  NODE_VERSION = "20"
   NEXT_USE_NETLIFY_EDGE = "true"
