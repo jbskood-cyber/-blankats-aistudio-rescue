@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createOrder } from "../../../lib/orders-store";
+import { getCheckoutMode, isMockCheckoutBlocked } from "../../../lib/checkout-mode";
 
 function safeErrorDetails(error: unknown) {
   const raw = error instanceof Error ? error.message : String(error);
@@ -64,12 +65,9 @@ export async function POST(req: NextRequest) {
     const hasMercadoPagoToken = Boolean(
       mpToken && mpToken.trim() !== "" && mpToken !== "YOUR_MERCADO_PAGO_ACCESS_TOKEN"
     );
-    const isProduction = process.env.NODE_ENV === "production";
-    const isDemoMode = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
-    const allowMock = !isProduction || isDemoMode;
     const hasSupabaseUrl = Boolean(process.env.SUPABASE_URL);
     const hasSupabaseServiceRoleKey = Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY);
-    const checkoutMode = mpToken?.startsWith("TEST-") ? "sandbox" : "production";
+    const checkoutMode = getCheckoutMode();
 
     console.log("Checkout configuration before Mercado Pago REST preference:", {
       appUrl,
@@ -84,6 +82,53 @@ export async function POST(req: NextRequest) {
 
     let preferenceId: string | null = null;
     let initPoint: string | null = null;
+
+    if (checkoutMode === "mock") {
+      if (isMockCheckoutBlocked(appUrl, requestOrigin)) {
+        return NextResponse.json({
+          error: "checkout_mock_blocked",
+          details: "Mock checkout is blocked on the production app URL.",
+        }, { status: 403 });
+      }
+
+      try {
+        const paidAt = new Date().toISOString();
+        await createOrder({
+          id: orderId,
+          amount: 49.00,
+          currency: "MXN",
+          status: "approved",
+          payment_provider: "mock",
+          customer_email: customerEmail || null,
+          mercado_pago_preference_id: null,
+          mercado_pago_payment_id: `MOCK-PAY-${orderId.slice(0, 8).toUpperCase()}`,
+          analysis_json: analysis,
+          improved_cv_json: improvedCV,
+          original_file_name: fileName || null,
+          download_token: downloadToken,
+          paid_at: paidAt,
+        });
+      } catch (orderError) {
+        console.error("Failed to create mock checkout order:", safeErrorDetails(orderError));
+        return NextResponse.json({
+          error: "checkout_supabase_order_failed",
+          details: safeErrorDetails(orderError),
+        }, { status: 500 });
+      }
+
+      return NextResponse.json({
+        orderId,
+        init_point: `${appUrl}/success?orderId=${orderId}`,
+        isMock: true,
+      });
+    }
+
+    if (checkoutMode === "production" && mpToken?.startsWith("TEST-")) {
+      return NextResponse.json({
+        error: "checkout_mercadopago_preference_failed",
+        details: "Production checkout mode requires a production Mercado Pago token.",
+      }, { status: 500 });
+    }
 
     if (hasMercadoPagoToken && mpToken) {
       try {
@@ -132,7 +177,7 @@ export async function POST(req: NextRequest) {
         }
 
         preferenceId = mpData?.id || null;
-        initPoint = checkoutMode === "sandbox"
+        initPoint = checkoutMode === "sandbox" && mpToken.startsWith("TEST-")
           ? mpData?.sandbox_init_point || mpData?.init_point || null
           : mpData?.init_point || null;
       } catch (mpError) {
@@ -142,22 +187,18 @@ export async function POST(req: NextRequest) {
           details: safeErrorDetails(mpError),
         }, { status: 502 });
       }
-    } else if (!allowMock) {
+    } else {
       return NextResponse.json({
         error: "checkout_mercadopago_preference_failed",
-        details: "Mercado Pago access token is not configured in production.",
+        details: "Mercado Pago access token is not configured.",
       }, { status: 500 });
     }
 
     if (!preferenceId || !initPoint) {
-      if (!allowMock) {
-        return NextResponse.json({
-          error: "checkout_mercadopago_preference_failed",
-          details: "Mercado Pago did not return a preference id or checkout init point.",
-        }, { status: 502 });
-      }
-      console.log("Using Mock Checkout simulator.");
-      initPoint = `${appUrl}/api/checkout/mock-pay?orderId=${orderId}`;
+      return NextResponse.json({
+        error: "checkout_mercadopago_preference_failed",
+        details: "Mercado Pago did not return a preference id or checkout init point.",
+      }, { status: 502 });
     }
 
     try {

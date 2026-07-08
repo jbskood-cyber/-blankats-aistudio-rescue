@@ -103,6 +103,7 @@ interface AnalysisResponse {
 
 type Screen = "home" | "upload" | "analyzing" | "diagnosis" | "paywall" | "success";
 type InputMode = "pdf" | "text";
+type CheckoutMode = "mock" | "sandbox" | "production";
 type RawRecord = Record<string, unknown>;
 
 const demoAnalysis: AnalysisResponse = {
@@ -332,6 +333,7 @@ export default function HomePage() {
   const [orderError, setOrderError] = useState<string | null>(null);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
+  const [checkoutMode, setCheckoutMode] = useState<CheckoutMode>("production");
 
   const isDemoMode = typeof process !== "undefined" && process.env.NEXT_PUBLIC_DEMO_MODE === "true";
   const currentAnalysis = analysis ?? (isDemoMode ? demoAnalysis : null);
@@ -349,6 +351,19 @@ export default function HomePage() {
         clearInterval(analyzingIntervalRef.current);
       }
     };
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/checkout/mode")
+      .then((response) => response.ok ? response.json() : null)
+      .then((data) => {
+        if (data?.isMockEnabled) {
+          setCheckoutMode("mock");
+        }
+      })
+      .catch(() => {
+        setCheckoutMode("production");
+      });
   }, []);
 
   // Check for orderId in search params on mount
@@ -2017,6 +2032,7 @@ export default function HomePage() {
             onUnlock={handleCheckout} 
             isCheckingOut={isCheckingOut}
             error={checkoutError || orderError}
+            checkoutMode={checkoutMode}
           />
         ) : null}
         {screen === "success" && (currentAnalysis || loadingOrder) ? (
@@ -2620,16 +2636,19 @@ function PaywallScreen({
   onBack, 
   onUnlock,
   isCheckingOut = false,
-  error = null
+  error = null,
+  checkoutMode = "production"
 }: { 
   onBack: () => void; 
   onUnlock: () => void;
   isCheckingOut?: boolean;
   error?: string | null;
+  checkoutMode?: CheckoutMode;
 }) {
   const reduced = usePrefersReducedMotion();
   const stagger = animStagger(reduced);
   const fadeUp = animFadeUp(reduced);
+  const isMockCheckout = checkoutMode === "mock";
 
   return (
     <ScreenShell>
@@ -2648,6 +2667,11 @@ function PaywallScreen({
         )}
 
         <motion.section variants={fadeUp} className="px-5 pt-1.5 text-center">
+          {isMockCheckout ? (
+            <p className="mx-auto mb-2 inline-flex rounded-full border border-[#bfdbfe] bg-[#eff6ff] px-3 py-1 text-[11px] font-black text-[#005bd4]">
+              Modo desarrollo: pago simulado
+            </p>
+          ) : null}
           <h1 className="text-[28px] font-black leading-[1.1] tracking-[-0.035em] min-[390px]:text-[31px]">
             Desbloquea tu
             <span className="block text-[#0068ff]">CV mejorado</span>
@@ -2705,7 +2729,7 @@ function PaywallScreen({
                 </>
               ) : (
                 <>
-                  Desbloquear mi CV profesional
+                  {isMockCheckout ? "Simular pago y continuar" : "Desbloquear mi CV profesional"}
                   <ArrowRight className="h-5 w-5" />
                 </>
               )}
