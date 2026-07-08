@@ -69,10 +69,12 @@ export async function POST(req: NextRequest) {
     const allowMock = !isProduction || isDemoMode;
     const hasSupabaseUrl = Boolean(process.env.SUPABASE_URL);
     const hasSupabaseServiceRoleKey = Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY);
+    const checkoutMode = mpToken?.startsWith("TEST-") ? "sandbox" : "production";
 
     console.log("Checkout configuration before Mercado Pago REST preference:", {
       appUrl,
       requestOrigin,
+      checkoutMode,
       hasMercadoPagoToken,
       mercadoPagoTokenPrefix: mpToken ? mpToken.slice(0, 7) : null,
       mercadoPagoTokenLength: mpToken?.length || 0,
@@ -130,7 +132,9 @@ export async function POST(req: NextRequest) {
         }
 
         preferenceId = mpData?.id || null;
-        initPoint = mpData?.sandbox_init_point || mpData?.init_point || null;
+        initPoint = checkoutMode === "sandbox"
+          ? mpData?.sandbox_init_point || mpData?.init_point || null
+          : mpData?.init_point || null;
       } catch (mpError) {
         console.error("Failed to create Mercado Pago REST preference:", safeErrorDetails(mpError));
         return NextResponse.json({
