@@ -1,38 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import { MercadoPagoConfig, Preference } from "mercadopago";
 import { createOrder } from "../../../lib/orders-store";
-
-const PRODUCTION_HOSTS = [
-  "blankats-cv-mx.netlify.app",
-  "production--blankats-cv-mx.netlify.app",
-];
-
-function getAppUrl(req: NextRequest) {
-  const host = req.headers.get("host") || "localhost:3000";
-  const proto = host.includes("localhost") || host.includes("127.0.0.1")
-    ? (req.headers.get("x-forwarded-proto") || "http")
-    : "https";
-
-  return `${proto}://${host}`.replace(/\/$/, "");
-}
-
-function isProductionHost(req: NextRequest) {
-  const host = (req.headers.get("host") || "").toLowerCase();
-  const configuredUrl = (process.env.NEXT_PUBLIC_APP_URL || "").toLowerCase();
-
-  return PRODUCTION_HOSTS.some((productionHost) => (
-    host.includes(productionHost) || configuredUrl.includes(productionHost)
-  ));
-}
 
 export async function POST(req: NextRequest) {
   try {
-    if (isProductionHost(req)) {
-      return NextResponse.json({
-        error: "checkout_disabled_on_main",
-        details: "Main is a development branch. Mock checkout is blocked on the production host.",
-      }, { status: 403 });
-    }
-
     const { analysis, improvedCV, fileName, customerEmail } = await req.json();
 
     if (!analysis || !improvedCV) {
@@ -42,39 +13,122 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Generate a unique order ID
     const orderId = crypto.randomUUID();
     const downloadToken = crypto.randomUUID();
-    const appUrl = getAppUrl(req);
-    const paidAt = new Date().toISOString();
 
-    console.log("Main development checkout: using mock payment only.", {
-      checkoutMode: "mock-main-development",
-      appUrl,
-    });
+    // Determine application base URL dynamically
+    const host = req.headers.get("host") || "localhost:3000";
+    let protocol = req.headers.get("x-forwarded-proto") || "http";
+    if (!host.includes("localhost") && !host.includes("127.0.0.1")) {
+      protocol = "https";
+    }
+    let appUrl = process.env.NEXT_PUBLIC_APP_URL;
+    if (!appUrl || appUrl.trim() === "" || appUrl === "MY_APP_URL" || !appUrl.startsWith("http")) {
+      appUrl = `${protocol}://${host}`;
+    } else if (appUrl.startsWith("http://") && !appUrl.includes("localhost") && !appUrl.includes("127.0.0.1")) {
+      appUrl = appUrl.replace("http://", "https://");
+    }
 
+    let preferenceId: string | null = null;
+    let initPoint: string | null = null;
+
+    const mpToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
+    const isProduction = process.env.NODE_ENV === "production";
+    const isDemoMode = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
+    const allowMock = !isProduction || isDemoMode;
+
+    if (mpToken && mpToken.trim() !== "" && mpToken !== "YOUR_MERCADO_PAGO_ACCESS_TOKEN") {
+      try {
+        console.log("Initializing real Mercado Pago preference for order:", orderId);
+        const mpClient = new MercadoPagoConfig({ accessToken: mpToken });
+        const preference = new Preference(mpClient);
+
+        // Mercado Pago expects notification_url to be HTTPS for live/sandbox notifications.
+        // We set notification_url as required.
+        const notificationUrl = `${appUrl}/api/mercadopago/webhook`;
+
+        const isSecureUrl = appUrl.startsWith("https://") && !appUrl.includes("localhost") && !appUrl.includes("127.0.0.1");
+
+        const preferenceData: any = {
+          items: [
+            {
+              id: "blankats-premium",
+              title: "Optimización de CV Profesional - BlankATS",
+              quantity: 1,
+              unit_price: 49.00,
+              currency_id: "MXN",
+            },
+          ],
+          external_reference: orderId,
+          back_urls: {
+            success: `${appUrl}/success?orderId=${orderId}`,
+            failure: `${appUrl}/paywall?orderId=${orderId}`,
+            pending: `${appUrl}/pending?orderId=${orderId}`,
+          },
+          notification_url: notificationUrl,
+        };
+
+        if (isSecureUrl) {
+          preferenceData.auto_return = "approved";
+        }
+
+        const response = await preference.create({
+          body: preferenceData,
+        });
+
+        preferenceId = response.id || null;
+        initPoint = response.init_point || null;
+      } catch (mpError: any) {
+        console.error("Failed to create real Mercado Pago preference:", mpError);
+        if (!allowMock) {
+          return NextResponse.json({
+            error: "Error de configuración de pagos: No se pudo generar la preferencia de Mercado Pago en producción.",
+            details: mpError.message || String(mpError)
+          }, { status: 502 });
+        }
+      }
+    } else {
+      if (!allowMock) {
+        return NextResponse.json({
+          error: "Error de configuración de pagos: Mercado Pago no está configurado en producción."
+        }, { status: 500 });
+      }
+    }
+
+    // If real Mercado Pago was not configured or failed to initialize, use Mock Checkout Simulator
+    if (!initPoint) {
+      if (!allowMock) {
+        return NextResponse.json({
+          error: "Error de configuración de pagos: No se pudo generar la pasarela de pagos en producción."
+        }, { status: 500 });
+      }
+      console.log("Using Mock Checkout simulator for order:", orderId);
+      initPoint = `${appUrl}/api/checkout/mock-pay?orderId=${orderId}`;
+    }
+
+    // Create pending order in database
     await createOrder({
       id: orderId,
       amount: 49.00,
       currency: "MXN",
-      status: "approved",
-      payment_provider: "mock",
+      status: "pending",
+      payment_provider: "mercadopago",
       customer_email: customerEmail || null,
-      mercado_pago_preference_id: null,
-      mercado_pago_payment_id: `MOCK-PAY-${orderId.slice(0, 8).toUpperCase()}`,
+      mercado_pago_preference_id: preferenceId,
       analysis_json: analysis,
       improved_cv_json: improvedCV,
       original_file_name: fileName || null,
       download_token: downloadToken,
-      paid_at: paidAt,
     });
 
     return NextResponse.json({
       orderId,
-      init_point: `${appUrl}/success?orderId=${orderId}`,
-      isMock: true,
+      init_point: initPoint,
+      isMock: !preferenceId,
     });
   } catch (error: any) {
-    console.error("Error in main mock /api/checkout:", error);
+    console.error("Error in /api/checkout:", error);
     return NextResponse.json({ error: error.message || "Internal Server Error" }, { status: 500 });
   }
 }
