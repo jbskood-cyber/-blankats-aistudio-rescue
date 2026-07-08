@@ -11,12 +11,27 @@ No vamos a borrar pagos en `main` manualmente. No vamos a comentar código de Me
 La solución oficial es:
 
 ```txt
-main / desarrollo      → pago simulado controlado
-sandbox / QA pagos     → Mercado Pago test
-production / real      → Mercado Pago real obligatorio
+main / AI Studio / desarrollo → pago simulado controlado
+sandbox / QA pagos            → Mercado Pago test
+production / Netlify real     → Mercado Pago real obligatorio
 ```
 
-## 2. Rama vs entorno
+## 2. Regla más importante del proyecto
+
+```txt
+AI Studio trabaja con main.
+Netlify producción trabaja con production.
+```
+
+Por decisión operativa:
+
+- `main` es el entorno de desarrollo y visualización en AI Studio.
+- `production` es la única rama que puede representar la app real publicada en Netlify.
+- El modo de simulación de pagos puede existir en `main` para permitir desarrollo.
+- El modo de simulación de pagos **nunca debe activarse en la app real de Netlify**.
+- No se deben hacer deploys manuales a Netlify desde `main` para probar el mock.
+
+## 3. Rama vs entorno
 
 La rama y el modo de pago son cosas distintas.
 
@@ -29,8 +44,8 @@ Ramas:
 
 ```txt
 feature/*  → trabajo de Codex
-main       → integración y desarrollo
-production → versión real publicada
+main       → integración y desarrollo en AI Studio
+production → versión real publicada en Netlify
 ```
 
 Modos de pago:
@@ -41,7 +56,7 @@ sandbox     → usa Mercado Pago test
 production  → usa Mercado Pago real
 ```
 
-## 3. Variable obligatoria
+## 4. Variable obligatoria
 
 Crear una variable server-side:
 
@@ -65,9 +80,9 @@ production
 
 Esto evita que un entorno mal configurado active mock por accidente.
 
-## 4. Configuración oficial por entorno
+## 5. Configuración oficial por entorno
 
-### 4.1 main / desarrollo
+### 5.1 main / AI Studio / desarrollo
 
 ```txt
 CHECKOUT_MODE=mock
@@ -83,7 +98,17 @@ Comportamiento esperado:
 - Puede crear una orden de prueba o usar flujo mock interno.
 - Nunca debe considerarse una venta real.
 
-### 4.2 QA de Mercado Pago sandbox
+En AI Studio, si pide `NEXT_PUBLIC_APP_URL`, no usar la URL real de Netlify producción. Usar una URL no productiva o dejar que el entorno use su preview.
+
+Nunca poner esto en AI Studio para probar mock:
+
+```txt
+NEXT_PUBLIC_APP_URL=https://blankats-cv-mx.netlify.app
+```
+
+Porque esa URL representa producción y debe bloquear el mock.
+
+### 5.2 QA de Mercado Pago sandbox
 
 ```txt
 CHECKOUT_MODE=sandbox
@@ -97,12 +122,13 @@ Comportamiento esperado:
 - Permite Buyer Test User, saldo ficticio y tarjetas de prueba.
 - Sirve para validar webhook y órdenes `approved` sin dinero real.
 
-### 4.3 production real
+### 5.3 production real / Netlify
 
 ```txt
 CHECKOUT_MODE=production
 MERCADO_PAGO_ACCESS_TOKEN=<token productivo>
 NEXT_PUBLIC_DEMO_MODE=false
+NEXT_PUBLIC_APP_URL=https://blankats-cv-mx.netlify.app
 ```
 
 Comportamiento esperado:
@@ -113,7 +139,7 @@ Comportamiento esperado:
 - Nunca muestra botón de pago simulado.
 - Nunca permite descarga sin orden `approved` real.
 
-## 5. Regla de seguridad más importante
+## 6. Regla de seguridad más importante
 
 El pago simulado puede existir en el código, pero no puede activarse en producción.
 
@@ -137,7 +163,7 @@ Si CHECKOUT_MODE=mock y el host es producción → bloquear.
 
 Así, aunque el código de mock llegue a `production`, no se activa.
 
-## 6. Regla Mercado Pago init point
+## 7. Regla Mercado Pago init point
 
 La app debe elegir el link según el modo:
 
@@ -157,7 +183,7 @@ Regla crítica:
 production nunca prioriza sandbox_init_point.
 ```
 
-## 7. Qué se puede hacer en main
+## 8. Qué se puede hacer en main
 
 En `main` sí se puede:
 
@@ -168,10 +194,12 @@ En `main` sí se puede:
 - Simular pago.
 - Probar pantallas posteriores al paywall.
 - Usar datos falsos.
+- Visualizar cambios en AI Studio.
+- Trabajar con Codex sin tocar producción.
 
 Pero solo si el comportamiento depende de `CHECKOUT_MODE=mock`.
 
-## 8. Qué NO se puede hacer en main
+## 9. Qué NO se puede hacer en main
 
 No se permite:
 
@@ -181,8 +209,10 @@ No se permite:
 - Hacer que `/success` funcione sin orden válida en producción.
 - Usar `NEXT_PUBLIC_` para secretos.
 - Subir tokens al repo.
+- Publicar `main` como producción en Netlify.
+- Cambiar la rama de producción de Netlify de `production` a `main`.
 
-## 9. Cómo debe verse el modo mock
+## 10. Cómo debe verse el modo mock
 
 En modo mock, el paywall puede mostrar:
 
@@ -204,9 +234,9 @@ CHECKOUT_MODE=mock
 
 En production, ese botón no debe renderizarse.
 
-## 10. Dev harness recomendado
+## 11. Dev harness recomendado
 
-Para dejar de depender de AI Studio y poder diseñar pantallas internas, se recomienda crear:
+Para dejar de depender del flujo completo y poder diseñar pantallas internas, se recomienda crear:
 
 ```txt
 /dev/screens
@@ -225,7 +255,7 @@ Reglas:
 - No exponen secretos.
 - En producción redirigen a `/` o devuelven 404.
 
-## 11. Feature flags recomendados
+## 12. Feature flags recomendados
 
 ```txt
 NEXT_PUBLIC_FEATURE_DEV_TOOLS=false
@@ -238,7 +268,7 @@ Regla:
 - En main se pueden activar para probar.
 - En production quedan en `false` hasta aprobar QA.
 
-## 12. Política de merges
+## 13. Política de merges
 
 El código de mock puede vivir en `main`, pero solo pasa a `production` si:
 
@@ -250,9 +280,32 @@ El código de mock puede vivir en `main`, pero solo pasa a `production` si:
 [ ] lint pasa
 [ ] build pasa
 [ ] QA de pago real pasa
+[ ] Netlify sigue conectado a production, no a main
 ```
 
-## 13. Prompt oficial para Codex
+## 14. Política Netlify
+
+Netlify producción debe mantenerse apuntando a:
+
+```txt
+production
+```
+
+No usar Netlify para visualizar el modo mock.
+
+Visualización de desarrollo:
+
+```txt
+AI Studio + main
+```
+
+Publicación real:
+
+```txt
+Netlify + production
+```
+
+## 15. Prompt oficial para Codex
 
 ```txt
 Implementa CHECKOUT_MODE para BlankATS.
@@ -266,6 +319,8 @@ Reglas:
 - CHECKOUT_MODE=production: usar token productivo e init_point.
 - Default si falta CHECKOUT_MODE: production.
 - Bloquear mock si NEXT_PUBLIC_APP_URL contiene blankats-cv-mx.netlify.app.
+- Main se visualiza en AI Studio, no en Netlify producción.
+- Netlify producción debe seguir apuntando a production.
 - No tocar Gemini.
 - No tocar generación PDF/DOCX salvo necesario para mocks.
 - No exponer secretos.
@@ -278,12 +333,14 @@ En main podemos diseñar y probar pantallas posteriores al pago sin Mercado Pago
 En production el pago real sigue siendo obligatorio.
 ```
 
-## 14. Resumen final
+## 16. Resumen final
 
 La regla oficial es:
 
 ```txt
 No se elimina el pago en main.
 Se agrega un modo mock controlado por entorno.
+AI Studio visualiza main.
+Netlify publica production.
 Production siempre usa pago real.
 ```
