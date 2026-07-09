@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 type GeminiContent =
   | {
       inlineData: {
-        mimeType: string;
+        mimeType: "application/pdf";
         data: string;
       };
     }
@@ -13,11 +13,6 @@ type GeminiContent =
 type AnalyzeRequest = {
   pdfBase64?: string;
   originalText?: string;
-  vacancyText?: string;
-  vacancyImages?: {
-    mimeType: string;
-    data: string;
-  }[];
 };
 
 function getErrorMessage(error: unknown): string {
@@ -36,7 +31,7 @@ const ai = new GoogleGenAI({
 
 export async function POST(req: NextRequest) {
   try {
-    const { pdfBase64, originalText, vacancyText, vacancyImages = [] } = (await req.json()) as AnalyzeRequest;
+    const { pdfBase64, originalText } = (await req.json()) as AnalyzeRequest;
 
     if (!pdfBase64 && !originalText) {
       return NextResponse.json(
@@ -55,19 +50,6 @@ export async function POST(req: NextRequest) {
         },
       });
     }
-
-    vacancyImages.slice(0, 2).forEach((image) => {
-      if (image.data && image.mimeType?.startsWith("image/")) {
-        contents.push({
-          inlineData: {
-            mimeType: image.mimeType,
-            data: image.data,
-          },
-        });
-      }
-    });
-
-    const hasTargetVacancy = Boolean(vacancyText?.trim() || vacancyImages.length > 0);
 
     contents.push({
       text: `Eres el motor principal de procesamiento de CVs para BlankATS.
@@ -135,14 +117,6 @@ NUNCA unas viñetas (bullets) con ".-", " - ", saltos de línea internos ni sím
 PROMESA SEGURA:
 No prometas empleo, ni pasar ATS garantizado, ni vencer sistemas de reclutamiento. Usa lenguaje seguro, por ejemplo: estructura más clara, presentación profesional, fácil de revisar, preparado para procesos digitales y reclutadores.
 
-VACANTE OBJETIVO OPCIONAL:
-${hasTargetVacancy ? `El usuario agregó una vacante objetivo. Úsala para evaluar alineación del CV con el puesto sin inventar experiencia.
-Texto de vacante:
-"""
-${vacancyText?.trim() || "(La vacante fue enviada como captura adjunta; extrae solo términos claramente visibles.)"}
-"""
-Si hay vacante, devuelve vacancyMatchScore como entero 0-100 y suggestedKeywords con palabras clave concretas de la vacante que conviene reflejar si son reales para el CV.` : "El usuario no agregó vacante objetivo. No incluyas vacancyMatchScore y deja suggestedKeywords como arreglo vacío si lo necesitas."}
-
 NUEVA REGLA CRÍTICA - AUDITORÍA PROFESIONAL DE CV (DIAGNÓSTICO):
 Debes generar un diagnóstico 100% real, personalizado y coherente con el CV analizado en el objeto JSON bajo la clave 'diagnosis'. El tono debe ser el de una auditoría profesional realizada por un especialista en reclutamiento, hablando siempre del documento (CV) y de la presentación de la trayectoria, nunca juzgando o evaluando a la persona o candidato. Evita sonar robótico, frío, académico, defensivo o alarmista. No intentes justificar la calificación (score).
 
@@ -194,8 +168,8 @@ ${originalText ? `"""\n${originalText}\n"""` : "(Ver archivo PDF adjunto)"}
 `,
     });
 
-    // Define the models to try in case of transient errors, prioritizing the modern gemini-3.5-flash and gemini-3.1-flash-lite models
-    const modelsToTry = ["gemini-3.5-flash", "gemini-3.1-flash-lite"];
+    // Define the models to try in case of transient errors, prioritizing the modern gemini-3.5-flash, gemini-3.1-flash-lite, and gemini-flash-latest models
+    const modelsToTry = ["gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-flash-latest"];
     let response: Awaited<ReturnType<typeof ai.models.generateContent>> | undefined;
     let lastError: unknown = null;
     let attempt = 0;
@@ -218,15 +192,6 @@ ${originalText ? `"""\n${originalText}\n"""` : "(Ver archivo PDF adjunto)"}
                 score: {
                   type: Type.INTEGER,
                   description: "Puntuación de claridad del CV del 1 al 100 basada en su legibilidad, redacción y estructura ATS.",
-                },
-                vacancyMatchScore: {
-                  type: Type.INTEGER,
-                  description: "Si el usuario agregó vacante objetivo, porcentaje 0-100 de coincidencia del CV con esa vacante. Si no hay vacante, omitir o usar null.",
-                },
-                suggestedKeywords: {
-                  type: Type.ARRAY,
-                  items: { type: Type.STRING },
-                  description: "Palabras clave sugeridas desde la vacante objetivo. Si no hay vacante, devolver arreglo vacío.",
                 },
                 qualityStatus: {
                   type: Type.STRING,

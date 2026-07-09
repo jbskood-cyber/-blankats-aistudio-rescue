@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCheckoutMode, isOfficialProductionUrl } from "../../../../../lib/checkout-mode";
 import { updateOrderStatus } from "../../../../../lib/orders-store";
 
 export async function GET(req: NextRequest) {
-  const requestHost = req.headers.get("host") || "";
-  if (getCheckoutMode() !== "mock" || isOfficialProductionUrl(requestHost)) {
+  const isProduction = process.env.NODE_ENV === "production";
+  const isDemoMode = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
+  if (isProduction && !isDemoMode) {
     return new NextResponse("Not Found", { status: 404 });
   }
 

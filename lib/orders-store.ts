@@ -1,5 +1,4 @@
 import { getSupabaseAdmin } from "./supabase";
-import { getCheckoutMode } from "./checkout-mode";
 
 export interface Order {
   id: string;
@@ -22,12 +21,6 @@ export interface Order {
 // In-memory fallback database for development when Supabase keys are not set yet
 const inMemoryOrders = new Map<string, Order>();
 
-function canUseInMemoryFallback() {
-  const isProduction = process.env.NODE_ENV === "production";
-  const isDemoMode = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
-  return !isProduction || isDemoMode || getCheckoutMode() === "mock";
-}
-
 export async function createOrder(order: Omit<Order, "created_at" | "updated_at">): Promise<Order> {
   const supabase = getSupabaseAdmin();
   const timestamp = new Date().toISOString();
@@ -38,7 +31,9 @@ export async function createOrder(order: Omit<Order, "created_at" | "updated_at"
     updated_at: timestamp,
   };
 
-  const allowFallback = canUseInMemoryFallback();
+  const isProduction = process.env.NODE_ENV === "production";
+  const isDemoMode = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
+  const allowFallback = !isProduction || isDemoMode;
 
   if (!supabase) {
     if (!allowFallback) {
@@ -94,7 +89,9 @@ export async function createOrder(order: Omit<Order, "created_at" | "updated_at"
 export async function getOrderById(id: string): Promise<Order | null> {
   const supabase = getSupabaseAdmin();
 
-  const allowFallback = canUseInMemoryFallback();
+  const isProduction = process.env.NODE_ENV === "production";
+  const isDemoMode = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
+  const allowFallback = !isProduction || isDemoMode;
 
   if (!supabase) {
     if (!allowFallback) {
@@ -139,7 +136,9 @@ export async function getOrderById(id: string): Promise<Order | null> {
 export async function getOrderByPreferenceId(preferenceId: string): Promise<Order | null> {
   const supabase = getSupabaseAdmin();
 
-  const allowFallback = canUseInMemoryFallback();
+  const isProduction = process.env.NODE_ENV === "production";
+  const isDemoMode = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
+  const allowFallback = !isProduction || isDemoMode;
 
   if (!supabase) {
     if (!allowFallback) {
@@ -202,70 +201,6 @@ export async function getOrderByPreferenceId(preferenceId: string): Promise<Orde
   }
 }
 
-export async function getOrderByDownloadToken(downloadToken: string): Promise<Order | null> {
-  const supabase = getSupabaseAdmin();
-  const allowFallback = canUseInMemoryFallback();
-
-  if (!supabase) {
-    if (!allowFallback) {
-      throw new Error("Supabase is not configured. Real database is required in production.");
-    }
-    for (const order of inMemoryOrders.values()) {
-      if (order.download_token === downloadToken) {
-        return order;
-      }
-    }
-    return null;
-  }
-
-  try {
-    const { data, error } = await supabase
-      .from("orders")
-      .select("*")
-      .eq("download_token", downloadToken)
-      .maybeSingle();
-
-    if (error) {
-      console.error("Supabase get order by download token error:", error);
-      if (!allowFallback) {
-        throw new Error(`Failed to fetch order by download token from Supabase: ${error.message}`);
-      }
-      for (const order of inMemoryOrders.values()) {
-        if (order.download_token === downloadToken) {
-          return order;
-        }
-      }
-      return null;
-    }
-
-    if (data) {
-      return data as Order;
-    }
-
-    if (!allowFallback) {
-      return null;
-    }
-
-    for (const order of inMemoryOrders.values()) {
-      if (order.download_token === downloadToken) {
-        return order;
-      }
-    }
-    return null;
-  } catch (err: any) {
-    console.error("Unexpected error in getOrderByDownloadToken:", err);
-    if (!allowFallback) {
-      throw err;
-    }
-    for (const order of inMemoryOrders.values()) {
-      if (order.download_token === downloadToken) {
-        return order;
-      }
-    }
-    return null;
-  }
-}
-
 export async function updateOrderStatus(
   id: string,
   status: "pending" | "approved" | "rejected" | "expired",
@@ -275,7 +210,9 @@ export async function updateOrderStatus(
   const supabase = getSupabaseAdmin();
   const timestamp = new Date().toISOString();
 
-  const allowFallback = canUseInMemoryFallback();
+  const isProduction = process.env.NODE_ENV === "production";
+  const isDemoMode = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
+  const allowFallback = !isProduction || isDemoMode;
 
   // Only update in-memory if fallback is allowed
   let localOrder = null;

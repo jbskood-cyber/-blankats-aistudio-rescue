@@ -13,7 +13,6 @@ import {
   CheckCircle2,
   ChevronRight,
   Circle,
-  Copy,
   Clock3,
   CloudUpload,
   Download,
@@ -30,7 +29,6 @@ import {
   Trophy,
   Upload,
   UserRound,
-  X,
 } from "lucide-react";
 
 type QualityStatus = "green" | "yellow" | "red";
@@ -73,8 +71,6 @@ interface ImprovedCV {
 
 interface AnalysisResponse {
   score: number;
-  vacancyMatchScore?: number;
-  suggestedKeywords?: string[];
   qualityStatus: QualityStatus;
   processingMode: ProcessingMode;
   recommendedAction: RecommendedAction;
@@ -107,20 +103,10 @@ interface AnalysisResponse {
 
 type Screen = "home" | "upload" | "analyzing" | "diagnosis" | "paywall" | "success";
 type InputMode = "pdf" | "text";
-type VacancyMode = "paste" | "captures";
 type RawRecord = Record<string, unknown>;
-
-type VacancyCapture = {
-  name: string;
-  mimeType: string;
-  data: string;
-  size: number;
-};
 
 const demoAnalysis: AnalysisResponse = {
   score: 78,
-  vacancyMatchScore: 68,
-  suggestedKeywords: ["Excel", "Atención al cliente", "Inventario", "KPIs", "Trabajo en equipo"],
   qualityStatus: "yellow",
   processingMode: "RESTRUCTURE_AND_IMPROVE",
   recommendedAction: "review_before_download",
@@ -296,13 +282,11 @@ function fitsDocxLine(text: string, maxChars = 90) {
 }
 
 function usePrefersReducedMotion() {
-  const [reduced, setReduced] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  });
+  const [reduced, setReduced] = useState(false);
   useEffect(() => {
     if (typeof window === "undefined") return;
     const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+    setReduced(mediaQuery.matches);
     const listener = (e: MediaQueryListEvent) => setReduced(e.matches);
     mediaQuery.addEventListener("change", listener);
     return () => mediaQuery.removeEventListener("change", listener);
@@ -330,14 +314,10 @@ export default function HomePage() {
   const [inputMode, setInputMode] = useState<InputMode>("pdf");
   const [file, setFile] = useState<File | null>(null);
   const [pastedText, setPastedText] = useState("");
-  const [vacancyMode, setVacancyMode] = useState<VacancyMode>("paste");
-  const [vacancyText, setVacancyText] = useState("");
-  const [vacancyCaptures, setVacancyCaptures] = useState<VacancyCapture[]>([]);
   const [dragActive, setDragActive] = useState(false);
   const [analysis, setAnalysis] = useState<AnalysisResponse | null>(null);
   const [visualNote, setVisualNote] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const vacancyCaptureInputRef = useRef<HTMLInputElement>(null);
 
   const [analyzingProgress, setAnalyzingProgress] = useState(0);
   const [analyzingMessage, setAnalyzingMessage] = useState("Leyendo el archivo…");
@@ -352,26 +332,12 @@ export default function HomePage() {
   const [orderError, setOrderError] = useState<string | null>(null);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
-  const [downloadToken, setDownloadToken] = useState<string | null>(null);
-  const [checkoutMode, setCheckoutMode] = useState<"mock" | "sandbox" | "production">("production");
 
   const isDemoMode = typeof process !== "undefined" && process.env.NEXT_PUBLIC_DEMO_MODE === "true";
   const currentAnalysis = analysis ?? (isDemoMode ? demoAnalysis : null);
   const currentFileName = file?.name || "mi-cv.pdf";
   const canAnalyze = useMemo(() => Boolean(file || pastedText.trim()), [file, pastedText]);
   const hasRealAnalysis = Boolean(analysis);
-  const hasVacancy = Boolean(vacancyText.trim() || vacancyCaptures.length > 0);
-
-  useEffect(() => {
-    fetch("/api/checkout/mode")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (data?.checkoutMode === "mock" || data?.checkoutMode === "sandbox" || data?.checkoutMode === "production") {
-          setCheckoutMode(data.checkoutMode);
-        }
-      })
-      .catch(() => undefined);
-  }, []);
 
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "smooth" });
@@ -393,11 +359,9 @@ export default function HomePage() {
       const queryStatus = params.get("status");
 
       if (queryOrderId) {
-        queueMicrotask(() => {
-          setOrderId(queryOrderId);
-          setLoadingOrder(true);
-          setScreen("success");
-        });
+        setOrderId(queryOrderId);
+        setLoadingOrder(true);
+        setScreen("success");
 
         const fetchOrder = () => {
           fetch(`/api/orders/${queryOrderId}`)
@@ -413,8 +377,6 @@ export default function HomePage() {
                   processingMode: orderData.analysis.processingMode,
                   recommendedAction: orderData.analysis.recommendedAction,
                   score: orderData.analysis.score,
-                  vacancyMatchScore: orderData.analysis.vacancyMatchScore,
-                  suggestedKeywords: orderData.analysis.suggestedKeywords || [],
                   extractionWarnings: orderData.analysis.extractionWarnings || [],
                   dataIntegrityWarnings: orderData.analysis.dataIntegrityWarnings || [],
                   problems: orderData.analysis.problems || [],
@@ -428,7 +390,6 @@ export default function HomePage() {
                   },
                   improvedCV: orderData.improvedCV,
                 });
-                setDownloadToken(orderData.download_token || null);
                 setFile({ name: orderData.original_file_name || "mi-cv.pdf" } as File);
                 setScreen("success");
               } else if (orderData.status === "pending") {
@@ -468,8 +429,6 @@ export default function HomePage() {
           processingMode: orderData.analysis.processingMode,
           recommendedAction: orderData.analysis.recommendedAction,
           score: orderData.analysis.score,
-          vacancyMatchScore: orderData.analysis.vacancyMatchScore,
-          suggestedKeywords: orderData.analysis.suggestedKeywords || [],
           extractionWarnings: orderData.analysis.extractionWarnings || [],
           dataIntegrityWarnings: orderData.analysis.dataIntegrityWarnings || [],
           problems: orderData.analysis.problems || [],
@@ -483,7 +442,6 @@ export default function HomePage() {
           },
           improvedCV: orderData.improvedCV,
         });
-        setDownloadToken(orderData.download_token || null);
         setFile({ name: orderData.original_file_name || "mi-cv.pdf" } as File);
         setScreen("success");
       } else if (orderData.status === "rejected") {
@@ -515,15 +473,7 @@ export default function HomePage() {
       });
 
       if (!response.ok) {
-        let errorMessage = "No se pudo iniciar el proceso de pago.";
-        try {
-          const errData = await response.json();
-          errorMessage = errData.error || errorMessage;
-          if (errData.details) {
-            errorMessage = `${errorMessage}: ${String(errData.details).slice(0, 300)}`;
-          }
-        } catch {}
-        throw new Error(errorMessage);
+        throw new Error("No se pudo iniciar el proceso de pago.");
       }
 
       const data = await response.json();
@@ -542,7 +492,7 @@ export default function HomePage() {
 
   useEffect(() => {
     if (!currentAnalysis && !loadingOrder && (screen === "diagnosis" || screen === "paywall" || screen === "success")) {
-      queueMicrotask(() => setScreen("upload"));
+      setScreen("upload");
     }
   }, [screen, currentAnalysis, loadingOrder]);
 
@@ -559,26 +509,6 @@ export default function HomePage() {
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     const selectedFile = event.target.files?.[0];
     if (selectedFile) acceptFile(selectedFile);
-  };
-
-  const handleVacancyCaptureChange = async (event: ChangeEvent<HTMLInputElement>) => {
-    const selected = Array.from(event.target.files || []).slice(0, Math.max(0, 2 - vacancyCaptures.length));
-    if (selected.length === 0) return;
-
-    try {
-      const compressed = await Promise.all(selected.map(compressVacancyImage));
-      setVacancyCaptures((current) => [...current, ...compressed].slice(0, 2));
-      setVisualNote(null);
-    } catch (err) {
-      console.error("Error compressing vacancy image:", err);
-      setVisualNote("No se pudo procesar la captura. Intenta con una imagen normal de tu celular.");
-    } finally {
-      event.target.value = "";
-    }
-  };
-
-  const removeVacancyCapture = (index: number) => {
-    setVacancyCaptures((current) => current.filter((_, itemIndex) => itemIndex !== index));
   };
 
   const handleDrag = (event: DragEvent<HTMLDivElement>) => {
@@ -612,7 +542,6 @@ export default function HomePage() {
     });
 
   const runAnalysis = async () => {
-    const vacancyProvided = Boolean(vacancyText.trim() || vacancyCaptures.length > 0);
     if (analyzingIntervalRef.current) {
       clearInterval(analyzingIntervalRef.current);
     }
@@ -623,7 +552,7 @@ export default function HomePage() {
         setVisualNote(null);
         setAnalyzingProgress(10);
         setAnalyzingStep(1);
-        setAnalyzingMessage(vacancyProvided ? "Evaluando claridad, estructura y ajuste con la vacante." : "Leyendo el archivo…");
+        setAnalyzingMessage("Leyendo el archivo…");
         setElapsedSeconds(0);
 
         const startTime = Date.now();
@@ -651,29 +580,12 @@ export default function HomePage() {
           }
 
           let step = 1;
-          let msg = vacancyProvided ? "Evaluando claridad, estructura y ajuste con la vacante." : "Leyendo el archivo…";
+          let msg = "Leyendo el archivo…";
           if (progress >= 100) {
-            step = vacancyProvided ? 5 : 4;
+            step = 4;
             msg = "Diagnóstico listo";
           } else {
-            if (vacancyProvided) {
-              if (progress < 20) {
-                step = 1;
-                msg = "Extrayendo texto del CV…";
-              } else if (progress < 40) {
-                step = 2;
-                msg = "Analizando contenido y estructura…";
-              } else if (progress < 60) {
-                step = 3;
-                msg = "Detectando palabras clave…";
-              } else if (progress < 80) {
-                step = 4;
-                msg = "Comparando con vacante…";
-              } else {
-                step = 5;
-                msg = "Generando versión mejorada…";
-              }
-            } else if (progress < 25) {
+            if (progress < 25) {
               step = 1;
               msg = "Leyendo el archivo…";
             } else if (progress < 50) {
@@ -688,7 +600,7 @@ export default function HomePage() {
             }
           }
 
-          if (!vacancyProvided && progress < 100) {
+          if (progress < 100) {
             if (progress >= 10 && progress < 20) msg = "Leyendo el archivo…";
             else if (progress >= 20 && progress < 35) msg = "Detectando secciones del CV…";
             else if (progress >= 35 && progress < 55) msg = "Evaluando claridad y estructura…";
@@ -711,7 +623,7 @@ export default function HomePage() {
     setVisualNote(null);
     setAnalyzingProgress(10);
     setAnalyzingStep(1);
-    setAnalyzingMessage(vacancyProvided ? "Evaluando claridad, estructura y ajuste con la vacante." : "Leyendo el archivo…");
+    setAnalyzingMessage("Leyendo el archivo…");
     setElapsedSeconds(0);
 
     const startTime = Date.now();
@@ -729,11 +641,6 @@ export default function HomePage() {
           body: JSON.stringify({
             pdfBase64,
             originalText: pastedText.trim() || undefined,
-            vacancyText: vacancyText.trim() || undefined,
-            vacancyImages: vacancyCaptures.map((capture) => ({
-              mimeType: capture.mimeType,
-              data: capture.data,
-            })),
           }),
         });
 
@@ -810,29 +717,12 @@ export default function HomePage() {
       }
 
       let step = 1;
-      let msg = vacancyProvided ? "Evaluando claridad, estructura y ajuste con la vacante." : "Leyendo el archivo…";
+      let msg = "Leyendo el archivo…";
       if (progress >= 100) {
-        step = vacancyProvided ? 5 : 4;
+        step = 4;
         msg = "Diagnóstico listo";
       } else {
-        if (vacancyProvided) {
-          if (progress < 20) {
-            step = 1;
-            msg = "Extrayendo texto del CV…";
-          } else if (progress < 40) {
-            step = 2;
-            msg = "Analizando contenido y estructura…";
-          } else if (progress < 60) {
-            step = 3;
-            msg = "Detectando palabras clave…";
-          } else if (progress < 80) {
-            step = 4;
-            msg = "Comparando con vacante…";
-          } else {
-            step = 5;
-            msg = "Generando versión mejorada…";
-          }
-        } else if (progress < 25) {
+        if (progress < 25) {
           step = 1;
           msg = "Leyendo el archivo…";
         } else if (progress < 50) {
@@ -847,7 +737,7 @@ export default function HomePage() {
         }
       }
 
-      if (!vacancyProvided && progress < 100) {
+      if (progress < 100) {
         if (progress >= 10 && progress < 20) msg = "Leyendo el archivo…";
         else if (progress >= 20 && progress < 35) msg = "Detectando secciones del CV…";
         else if (progress >= 35 && progress < 55) msg = "Evaluando claridad y estructura…";
@@ -2071,7 +1961,6 @@ export default function HomePage() {
   const goHome = () => {
     setScreen("home");
     setAnalysis(null);
-    setDownloadToken(null);
     setVisualNote(null);
   };
 
@@ -2088,19 +1977,11 @@ export default function HomePage() {
             inputMode={inputMode}
             note={visualNote}
             pastedText={pastedText}
-            vacancyCaptureInputRef={vacancyCaptureInputRef}
-            vacancyCaptures={vacancyCaptures}
-            vacancyMode={vacancyMode}
-            vacancyText={vacancyText}
             onAnalyze={runAnalysis}
             onBack={() => setScreen("home")}
             onDrag={handleDrag}
             onDrop={handleDrop}
             onFileChange={handleFileChange}
-            onRemoveVacancyCapture={removeVacancyCapture}
-            onVacancyCaptureChange={handleVacancyCaptureChange}
-            onVacancyMode={setVacancyMode}
-            onVacancyText={setVacancyText}
             onMode={setInputMode}
             onText={setPastedText}
           />
@@ -2112,7 +1993,6 @@ export default function HomePage() {
             activeStep={analyzingStep}
             loadingMessage={analyzingMessage}
             file={file}
-            hasVacancy={hasVacancy}
           />
         ) : null}
         {screen === "diagnosis" && currentAnalysis ? (
@@ -2126,9 +2006,13 @@ export default function HomePage() {
         {screen === "paywall" ? (
           <PaywallScreen 
             onBack={() => setScreen("diagnosis")} 
-            onUnlock={handleCheckout} 
-            isCheckingOut={isCheckingOut}
-            checkoutMode={checkoutMode}
+            onUnlock={() => {
+              setOrderStatus("approved");
+              setOrderError(null);
+              setCheckoutError(null);
+              setScreen("success");
+            }} 
+            isCheckingOut={false}
             error={checkoutError || orderError}
           />
         ) : null}
@@ -2142,7 +2026,6 @@ export default function HomePage() {
             orderStatus={orderStatus}
             loadingOrder={loadingOrder}
             onRefreshOrder={refreshOrder}
-            downloadToken={downloadToken}
           />
         ) : null}
       </div>
@@ -2152,47 +2035,6 @@ export default function HomePage() {
 
 function wait(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
-function compressVacancyImage(file: File): Promise<VacancyCapture> {
-  return new Promise((resolve, reject) => {
-    if (!file.type.startsWith("image/")) {
-      reject(new Error("El archivo no es una imagen."));
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error("No se pudo leer la imagen."));
-    reader.onload = () => {
-      const img = new window.Image();
-      img.onerror = () => reject(new Error("No se pudo cargar la imagen."));
-      img.onload = () => {
-        const maxSide = 1280;
-        const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
-        const width = Math.max(1, Math.round(img.width * scale));
-        const height = Math.max(1, Math.round(img.height * scale));
-        const canvas = document.createElement("canvas");
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) {
-          reject(new Error("No se pudo preparar la compresión."));
-          return;
-        }
-        ctx.drawImage(img, 0, 0, width, height);
-        const dataUrl = canvas.toDataURL("image/jpeg", 0.74);
-        const data = dataUrl.split(",")[1] || "";
-        resolve({
-          name: file.name,
-          mimeType: "image/jpeg",
-          data,
-          size: Math.round((data.length * 3) / 4),
-        });
-      };
-      img.src = String(reader.result || "");
-    };
-    reader.readAsDataURL(file);
-  });
 }
 
 function compactFileName(name: string, maxLength = 28) {
@@ -2291,19 +2133,11 @@ function UploadScreen({
   inputMode,
   note,
   pastedText,
-  vacancyCaptureInputRef,
-  vacancyCaptures,
-  vacancyMode,
-  vacancyText,
   onAnalyze,
   onBack,
   onDrag,
   onDrop,
   onFileChange,
-  onRemoveVacancyCapture,
-  onVacancyCaptureChange,
-  onVacancyMode,
-  onVacancyText,
   onMode,
   onText,
 }: {
@@ -2314,19 +2148,11 @@ function UploadScreen({
   inputMode: InputMode;
   note: string | null;
   pastedText: string;
-  vacancyCaptureInputRef: React.RefObject<HTMLInputElement | null>;
-  vacancyCaptures: VacancyCapture[];
-  vacancyMode: VacancyMode;
-  vacancyText: string;
   onAnalyze: () => void;
   onBack: () => void;
   onDrag: (event: DragEvent<HTMLDivElement>) => void;
   onDrop: (event: DragEvent<HTMLDivElement>) => void;
   onFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
-  onRemoveVacancyCapture: (index: number) => void;
-  onVacancyCaptureChange: (event: ChangeEvent<HTMLInputElement>) => void;
-  onVacancyMode: (mode: VacancyMode) => void;
-  onVacancyText: (text: string) => void;
   onMode: (mode: InputMode) => void;
   onText: (text: string) => void;
 }) {
@@ -2413,78 +2239,6 @@ function UploadScreen({
         </motion.section>
 
         <motion.section variants={fadeUp} className="px-5 pt-0">
-          <div className="rounded-[14px] border border-[#e8edf4] bg-white p-3.5 shadow-[0_8px_20px_rgba(15,25,55,0.05)]">
-            <div className="mb-3 flex items-start gap-2.5 text-left">
-              <div className="grid h-[38px] w-[38px] shrink-0 place-items-center rounded-full bg-[#edf5ff] text-[#0068ff]">
-                <Search className="h-5 w-5" />
-              </div>
-              <div>
-                <h2 className="text-[15px] font-black leading-5">Vacante objetivo <span className="font-medium text-[#8a929f]">(opcional)</span></h2>
-                <p className="mt-0.5 text-[12.5px] font-medium leading-4 text-[#626a79]">Ayuda a personalizar tu CV para una oferta real.</p>
-              </div>
-            </div>
-
-            <div className="grid h-[40px] grid-cols-2 rounded-[10px] border border-[#dbe2ec] bg-white p-1">
-              <TabButton active={vacancyMode === "paste"} icon={<FileText className="h-4.5 w-4.5" />} onClick={() => onVacancyMode("paste")}>
-                Pegar vacante
-              </TabButton>
-              <TabButton active={vacancyMode === "captures"} icon={<Upload className="h-4.5 w-4.5" />} onClick={() => onVacancyMode("captures")}>
-                Capturas (máx. 2)
-              </TabButton>
-            </div>
-
-            {vacancyMode === "paste" ? (
-              <div className="mt-3">
-                <textarea
-                  value={vacancyText}
-                  maxLength={4000}
-                  onChange={(event) => onVacancyText(event.target.value)}
-                  className="min-h-[92px] w-full resize-none rounded-[10px] border border-[#dbe2ec] bg-white p-3 text-[13.5px] leading-5 text-[#070b2f] outline-none placeholder:text-[#8a929f] transition duration-200 focus:border-[#0068ff]"
-                  placeholder="Pega aquí la descripción de la vacante..."
-                />
-                <p className="mt-1.5 text-right text-[12px] font-medium text-[#8a929f]">{vacancyText.length}/4000</p>
-              </div>
-            ) : (
-              <div className="mt-3">
-                <input
-                  ref={vacancyCaptureInputRef}
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  className="sr-only"
-                  onChange={onVacancyCaptureChange}
-                />
-                <button
-                  type="button"
-                  disabled={vacancyCaptures.length >= 2}
-                  onClick={() => vacancyCaptureInputRef.current?.click()}
-                  className="flex min-h-[74px] w-full flex-col items-center justify-center gap-1.5 rounded-[10px] border border-dashed border-[#8aa5c7] bg-[#fbfdff] px-3 text-center text-[13.5px] font-black text-[#0068ff] disabled:cursor-not-allowed disabled:opacity-55"
-                >
-                  <Upload className="h-5 w-5" />
-                  Agregar captura de la vacante
-                  <span className="text-[12px] font-medium text-[#8a929f]">{vacancyCaptures.length}/2 capturas</span>
-                </button>
-                {vacancyCaptures.length > 0 ? (
-                  <div className="mt-2 space-y-2">
-                    {vacancyCaptures.map((capture, index) => (
-                      <div key={`${capture.name}-${index}`} className="flex items-center gap-2 rounded-[9px] border border-[#edf0f5] bg-white px-2.5 py-2">
-                        <FileText className="h-4 w-4 shrink-0 text-[#0068ff]" />
-                        <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[12.5px] font-bold text-[#070b2f]" title={capture.name}>
-                          {compactFileName(capture.name, 32)}
-                        </span>
-                        <button type="button" aria-label="Quitar captura" onClick={() => onRemoveVacancyCapture(index)} className="grid h-7 w-7 place-items-center rounded-full border border-[#e4e9f0] text-[#626a79]">
-                          <X className="h-4 w-4" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            )}
-          </div>
-        </motion.section>
-
-        <motion.section variants={fadeUp} className="px-5 pt-0">
           <div className="flex items-center gap-2.5 rounded-[12px] border border-[#e7edf5] bg-white p-3 shadow-[0_6px_16px_rgba(15,25,55,0.04)]">
             <div className="grid h-[42px] w-[42px] shrink-0 place-items-center rounded-full bg-[#edf5ff] text-[#0068ff]">
               <ShieldCheck className="h-6 w-6" />
@@ -2519,14 +2273,12 @@ function AnalyzingScreen({
   activeStep,
   loadingMessage,
   file,
-  hasVacancy,
 }: {
   fileName: string;
   progress: number;
   activeStep: number;
   loadingMessage: string;
   file: File | null;
-  hasVacancy: boolean;
 }) {
   const reduced = usePrefersReducedMotion();
   const stagger = animStagger(reduced);
@@ -2574,18 +2326,8 @@ function AnalyzingScreen({
           <div className="mt-3.5 rounded-[12px] border border-[#e4e9f0] bg-white p-3.5 shadow-[0_6px_16px_rgba(15,25,55,0.04)]">
             <TimelineStep done={activeStep > 1} active={activeStep === 1} number="1" title="Extrayendo texto">Obteniendo y estructurando el texto de tu documento.</TimelineStep>
             <TimelineStep done={activeStep > 2} active={activeStep === 2} number="2" title="Analizando contenido">Evaluando claridad, relevancia y estructura.</TimelineStep>
-            {hasVacancy ? (
-              <>
-                <TimelineStep done={activeStep > 3} active={activeStep === 3} number="3" title="Detectando palabras clave">Identificando términos y habilidades importantes.</TimelineStep>
-                <TimelineStep done={activeStep > 4} active={activeStep === 4} number="4" title="Comparando con vacante">Midiendo el ajuste con los requisitos del puesto.</TimelineStep>
-                <TimelineStep done={activeStep > 5} active={activeStep === 5} number="5" title="Generando versión mejorada" last>Redactando sugerencias y preparando tu CV optimizado.</TimelineStep>
-              </>
-            ) : (
-              <>
-                <TimelineStep done={activeStep > 3} active={activeStep === 3} number="3" title="Optimizando formato">Mejorando presentación, secciones y legibilidad.</TimelineStep>
-                <TimelineStep done={activeStep > 4} active={activeStep === 4} number="4" title="Generando versión mejorada" last>Redactando sugerencias y preparando tu CV optimizado.</TimelineStep>
-              </>
-            )}
+            <TimelineStep done={activeStep > 3} active={activeStep === 3} number="3" title="Optimizando formato">Mejorando presentación, secciones y legibilidad.</TimelineStep>
+            <TimelineStep done={activeStep > 4} active={activeStep === 4} number="4" title="Generando versión mejorada">Redactando sugerencias y preparando tu CV optimizado.</TimelineStep>
           </div>
 
           <div className="mt-3 flex items-center justify-center gap-1.5 border-b border-[#edf0f5] pb-3 text-[14px] font-medium text-[#626a79]">
@@ -2599,7 +2341,7 @@ function AnalyzingScreen({
           <div className="mt-2 grid grid-cols-1 gap-2">
             <EvalCard icon={<FileText className="h-6 w-6" />} title="Formato">Estructura, orden y legibilidad del CV.</EvalCard>
             <EvalCard icon={<UserRound className="h-6 w-6" />} title="Contenido">Relevancia, claridad y palabras clave.</EvalCard>
-            <EvalCard icon={<Star className="h-6 w-6" />} title={hasVacancy ? "Ajuste con vacante" : "Impacto"}>{hasVacancy ? "Alineación con los requisitos del puesto." : "Alineación con el puesto y resultados."}</EvalCard>
+            <EvalCard icon={<Star className="h-6 w-6" />} title="Impacto">Alineación con el puesto y resultados.</EvalCard>
           </div>
         </motion.section>
       </motion.div>
@@ -2699,8 +2441,6 @@ function DiagnosisScreen({
 
   const allowDownload = analysis.deliveryDecision?.allowDownload !== false;
   const userMessage = analysis.deliveryDecision?.userMessage || "Tu CV ha sido analizado con éxito.";
-  const hasVacancyMatch = typeof analysis.vacancyMatchScore === "number";
-  const suggestedKeywords = (analysis.suggestedKeywords || []).filter(Boolean).slice(0, 8);
 
   return (
     <ScreenShell>
@@ -2735,17 +2475,6 @@ function DiagnosisScreen({
               </p>
             </div>
           )}
-          {hasVacancyMatch ? (
-            <div className="mt-3 rounded-[10px] border border-[#d7f2e5] bg-[#effcf5] p-3 text-left">
-              <div className="flex items-center justify-between gap-3">
-                <span className="flex items-center gap-2 text-[13px] font-black text-[#129853]">
-                  <Search className="h-4 w-4" />
-                  Coincidencia con vacante
-                </span>
-                <span className="text-[18px] font-black text-[#129853]">{Math.max(0, Math.min(100, Math.round(analysis.vacancyMatchScore || 0)))}%</span>
-              </div>
-            </div>
-          ) : null}
         </motion.section>
 
         {note ? (
@@ -2783,20 +2512,6 @@ function DiagnosisScreen({
             )}
           </div>
         </motion.section>
-
-        {suggestedKeywords.length > 0 ? (
-          <motion.section variants={fadeUp} className="px-5">
-            <h2 className="mb-2 text-left text-[17px] font-black">Palabras clave sugeridas</h2>
-            <div className="flex flex-wrap gap-2">
-              {suggestedKeywords.map((keyword) => (
-                <span key={keyword} className="inline-flex items-center gap-1.5 rounded-full border border-[#dbe8f8] bg-white px-3 py-1.5 text-[12.5px] font-black text-[#0c55b8] shadow-[0_4px_10px_rgba(15,25,55,0.03)]">
-                  <Search className="h-3.5 w-3.5" />
-                  {keyword}
-                </span>
-              ))}
-            </div>
-          </motion.section>
-        ) : null}
 
         <motion.section variants={fadeUp} className="px-5">
           <SectionTitle number="3" title="Recomendaciones clave" />
@@ -2902,13 +2617,11 @@ function PaywallScreen({
   onBack, 
   onUnlock,
   isCheckingOut = false,
-  checkoutMode = "production",
   error = null
 }: { 
   onBack: () => void; 
   onUnlock: () => void;
   isCheckingOut?: boolean;
-  checkoutMode?: "mock" | "sandbox" | "production";
   error?: string | null;
 }) {
   const reduced = usePrefersReducedMotion();
@@ -2966,16 +2679,11 @@ function PaywallScreen({
         <motion.section variants={fadeUp} className="px-5">
           <div className="rounded-[12px] border border-[#e4e9f0] bg-white p-3 text-center shadow-[0_6px_16px_rgba(15,25,55,0.04)]">
             <div className="flex flex-wrap items-end justify-center gap-x-4 gap-y-1">
-              <span className="pb-2 text-[17px] font-bold text-[#6f7682] line-through">$149 MXN</span>
+              <span className="pb-2 text-[17px] font-bold text-[#6f7682] line-through">$99 MXN</span>
               <span className="text-[42px] font-black leading-none text-[#0068ff]">$49</span>
               <span className="pb-2 text-[15px] font-black text-[#0068ff]">MXN</span>
             </div>
             <p className="mt-0.5 text-[13.5px] font-medium text-[#626a79]">Pago único · Sin suscripciones</p>
-            {checkoutMode === "mock" ? (
-              <p className="mt-2 inline-flex rounded-full bg-[#edf5ff] px-3 py-1 text-[11.5px] font-black text-[#0c55b8]">
-                Modo desarrollo: pago simulado
-              </p>
-            ) : null}
             <motion.button 
               className="mt-3 flex h-[48px] w-full items-center justify-center gap-2.5 rounded-[9px] bg-[#0068ff] text-[15px] font-black text-white shadow-[0_10px_20px_rgba(0,104,255,0.18)] disabled:opacity-75 disabled:cursor-not-allowed" 
               onClick={onUnlock}
@@ -2994,7 +2702,7 @@ function PaywallScreen({
                 </>
               ) : (
                 <>
-                  {checkoutMode === "mock" ? "Simular pago y continuar" : "Desbloquear mi CV profesional"}
+                  Desbloquear mi CV profesional
                   <ArrowRight className="h-5 w-5" />
                 </>
               )}
@@ -3007,7 +2715,6 @@ function PaywallScreen({
             <TrustItem icon={<ShieldCheck className="h-5 w-5" />}>Pago único</TrustItem>
             <TrustItem icon={<Sparkles className="h-5 w-5" />}>Entrega inmediata</TrustItem>
             <TrustItem icon={<Lock className="h-5 w-5" />}>Tus datos están protegidos</TrustItem>
-            <TrustItem icon={<FileDown className="h-5 w-5" />}>Descarga PDF + DOCX</TrustItem>
           </div>
         </motion.section>
       </motion.div>
@@ -3017,7 +2724,6 @@ function PaywallScreen({
 
 function SuccessScreen({
   analysis,
-  downloadToken,
   fileName,
   onDoc,
   onHome,
@@ -3027,7 +2733,6 @@ function SuccessScreen({
   onRefreshOrder,
 }: {
   analysis: AnalysisResponse | null;
-  downloadToken?: string | null;
   fileName: string;
   onDoc: () => void;
   onHome: () => void;
@@ -3039,22 +2744,6 @@ function SuccessScreen({
   const reduced = usePrefersReducedMotion();
   const stagger = animStagger(reduced);
   const fadeUp = animFadeUp(reduced);
-  const [copiedLink, setCopiedLink] = useState(false);
-  const privateDownloadPath = downloadToken ? `/download/${downloadToken}` : null;
-  const privateDownloadUrl = privateDownloadPath && typeof window !== "undefined"
-    ? `${window.location.origin}${privateDownloadPath}`
-    : privateDownloadPath;
-
-  const copyPrivateLink = async () => {
-    if (!privateDownloadUrl) return;
-    try {
-      await navigator.clipboard.writeText(privateDownloadUrl);
-      setCopiedLink(true);
-      window.setTimeout(() => setCopiedLink(false), 1800);
-    } catch {
-      setCopiedLink(false);
-    }
-  };
 
   if (loadingOrder) {
     return (
@@ -3221,28 +2910,6 @@ function SuccessScreen({
               Descargar DOCX
             </motion.button>
           </div>
-
-          {privateDownloadPath ? (
-            <motion.div variants={fadeUp} className="mt-4 rounded-[12px] border border-[#e4e9f0] bg-white p-3 text-left shadow-[0_6px_16px_rgba(15,25,55,0.04)]">
-              <div className="flex items-start gap-2.5">
-                <div className="grid h-[42px] w-[42px] shrink-0 place-items-center rounded-full bg-[#edf5ff] text-[#0068ff]">
-                  <Copy className="h-5 w-5" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <h2 className="text-[15px] font-black">Enlace privado de descarga</h2>
-                  <p className="mt-0.5 text-[12.5px] font-medium leading-4 text-[#626a79]">Guárdalo para volver a descargar tu CV después.</p>
-                </div>
-              </div>
-              <div className="mt-3 flex items-center gap-2">
-                <code className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap rounded-[8px] bg-[#f4f7fb] px-3 py-2 text-[12px] font-bold text-[#4b5563]">
-                  {privateDownloadPath}
-                </code>
-                <button type="button" onClick={copyPrivateLink} className="shrink-0 rounded-[8px] border border-[#0068ff] px-3 py-2 text-[12px] font-black text-[#0068ff]">
-                  {copiedLink ? "Copiado" : "Copiar enlace"}
-                </button>
-              </div>
-            </motion.div>
-          ) : null}
 
           <h2 className="mt-5 text-left text-[18px] font-black">Qué mejoramos</h2>
           <div className="mt-3 grid grid-cols-1 gap-2.5">
@@ -3414,17 +3081,21 @@ function HomeScoreCard() {
 function ProgressRing({ value, mode, size }: { value: number; mode: "score" | "percent"; size: number }) {
   const reduced = usePrefersReducedMotion();
   const [animatedValue, setAnimatedValue] = useState(0);
+  const [isFinished, setIsFinished] = useState(false);
 
   useEffect(() => {
+    setIsFinished(false);
     if (mode === "percent" || reduced) {
-      const animationFrameId = requestAnimationFrame(() => setAnimatedValue(value));
-      return () => cancelAnimationFrame(animationFrameId);
+      setAnimatedValue(value);
+      setIsFinished(true);
+      return;
     }
     let start = 0;
     const end = value;
     if (start === end) {
-      const animationFrameId = requestAnimationFrame(() => setAnimatedValue(value));
-      return () => cancelAnimationFrame(animationFrameId);
+      setAnimatedValue(value);
+      setIsFinished(true);
+      return;
     }
     const duration = 1200; // 1.2 seconds for full count up
     const startTime = performance.now();
@@ -3439,6 +3110,8 @@ function ProgressRing({ value, mode, size }: { value: number; mode: "score" | "p
       
       if (progress < 1) {
         animationFrameId = requestAnimationFrame(animate);
+      } else {
+        setIsFinished(true);
       }
     };
     animationFrameId = requestAnimationFrame(animate);
@@ -3449,8 +3122,37 @@ function ProgressRing({ value, mode, size }: { value: number; mode: "score" | "p
   const numSize = size < 110 ? "text-[28px]" : mode === "percent" ? "text-[36px]" : "text-[32px]";
   const pctSize = size < 110 ? "text-[16px]" : "text-[19px]";
   const lblSize = size < 110 ? "text-[12px] mt-0.5" : "text-[14px] mt-1";
+
+  const flickerVariants = {
+    flicker: {
+      opacity: [1, 0.45, 0.95, 0.35, 1, 0.85, 1],
+      scale: [1, 1.05, 0.98, 1.03, 1],
+      filter: [
+        "drop-shadow(0 0 0px rgba(0, 104, 255, 0))",
+        "drop-shadow(0 0 12px rgba(0, 104, 255, 0.55))",
+        "drop-shadow(0 0 3px rgba(0, 104, 255, 0.2))",
+        "drop-shadow(0 0 16px rgba(0, 104, 255, 0.7))",
+        "drop-shadow(0 0 0px rgba(0, 104, 255, 0))"
+      ],
+      transition: {
+        duration: 0.65,
+        ease: "easeInOut" as const,
+      }
+    },
+    idle: {
+      opacity: 1,
+      scale: 1,
+      filter: "drop-shadow(0 0 0px rgba(0, 104, 255, 0))"
+    }
+  };
+
   return (
-    <div className="mx-auto grid place-items-center rounded-full transition-all duration-300" style={{ width: size, height: size, background: `conic-gradient(${blue} 0deg ${animatedValue * 3.6}deg, #e8f1ff ${animatedValue * 3.6}deg 360deg)` }}>
+    <motion.div 
+      className="mx-auto grid place-items-center rounded-full" 
+      style={{ width: size, height: size, background: `conic-gradient(${blue} 0deg ${animatedValue * 3.6}deg, #e8f1ff ${animatedValue * 3.6}deg 360deg)` }}
+      animate={isFinished && mode === "score" ? "flicker" : "idle"}
+      variants={flickerVariants}
+    >
       <div className="grid place-items-center rounded-full bg-white" style={{ width: inner, height: inner }}>
         <div className="text-center select-none">
           <p className={`${numSize} font-black leading-none tracking-[-0.04em]`}>
@@ -3462,7 +3164,7 @@ function ProgressRing({ value, mode, size }: { value: number; mode: "score" | "p
           </p>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -3502,7 +3204,7 @@ function OfferCard({ onClick }: { onClick: () => void }) {
           <h2 className="text-[16.5px] font-black leading-5">Desbloquea tu CV profesional</h2>
           <p className="mt-0.5 text-[12.5px] font-medium leading-4 text-[#626a79]">Versión más clara, ordenada y lista para destacar.</p>
           <div className="mt-2.5 flex flex-wrap items-end gap-x-2.5 gap-y-1">
-            <span className="pb-1 text-[14.5px] font-bold text-[#6f7682] line-through">$149 MXN</span>
+            <span className="pb-1 text-[14.5px] font-bold text-[#6f7682] line-through">$99 MXN</span>
             <span className="text-[32px] font-black leading-none">$49</span>
             <span className="pb-1 text-[14.5px] font-black text-[#0068ff]">MXN</span>
             <span className="mb-1 rounded-full bg-[#edf5ff] px-2 py-0.5 text-[11px] font-black text-[#0c55b8]">Pago único</span>
@@ -3548,7 +3250,7 @@ function PdfIcon({ large = false }: { large?: boolean }) {
   );
 }
 
-function TimelineStep({ active, children, done, last, number, title }: { active?: boolean; children: ReactNode; done?: boolean; last?: boolean; number: string; title: string }) {
+function TimelineStep({ active, children, done, number, title }: { active?: boolean; children: ReactNode; done?: boolean; number: string; title: string }) {
   const reduced = usePrefersReducedMotion();
   return (
     <motion.div 
@@ -3557,7 +3259,7 @@ function TimelineStep({ active, children, done, last, number, title }: { active?
       transition={{ duration: 0.3 }}
     >
       <div className="relative flex justify-center">
-        {!last ? <span className="absolute top-7 h-full w-px bg-[#d6f2e5]" /> : null}
+        {number !== "4" ? <span className="absolute top-7 h-full w-px bg-[#d6f2e5]" /> : null}
         <motion.span 
           className={`relative z-10 grid h-7 w-7 place-items-center rounded-full text-[13px] font-black ${done ? "bg-[#9ff0c8] text-[#0f9f57]" : active ? "border-[3px] border-[#0068ff] bg-white text-[#0068ff]" : "bg-[#eef2f7] text-[#6f7682]"}`}
           animate={active && !reduced ? { scale: [1, 1.08, 1] } : { scale: 1 }}
