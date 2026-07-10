@@ -7,20 +7,32 @@ function safeErrorMessage(error: unknown) {
   return String(error).slice(0, 300);
 }
 
-function getAppUrl(req: NextRequest) {
+function getRequestAppUrl(req: NextRequest) {
   const host = req.headers.get("host") || "localhost:3000";
   let protocol = req.headers.get("x-forwarded-proto") || "http";
   if (!host.includes("localhost") && !host.includes("127.0.0.1")) {
     protocol = "https";
   }
+  return `${protocol}://${host}`;
+}
 
-  let appUrl = process.env.NEXT_PUBLIC_APP_URL;
-  if (!appUrl || appUrl.trim() === "" || appUrl === "MY_APP_URL" || !appUrl.startsWith("http")) {
-    appUrl = `${protocol}://${host}`;
-  } else if (appUrl.startsWith("http://") && !appUrl.includes("localhost") && !appUrl.includes("127.0.0.1")) {
-    appUrl = appUrl.replace("http://", "https://");
+function getProductionAppUrl(req: NextRequest) {
+  const requestAppUrl = getRequestAppUrl(req);
+  const configuredUrl = process.env.NEXT_PUBLIC_APP_URL;
+
+  if (
+    isOfficialProductionUrl(req.headers.get("host")) &&
+    configuredUrl &&
+    configuredUrl.trim() !== "" &&
+    configuredUrl !== "MY_APP_URL" &&
+    configuredUrl.startsWith("http")
+  ) {
+    return configuredUrl.startsWith("http://")
+      ? configuredUrl.replace("http://", "https://")
+      : configuredUrl;
   }
-  return appUrl;
+
+  return requestAppUrl;
 }
 
 export async function POST(req: NextRequest) {
@@ -36,13 +48,17 @@ export async function POST(req: NextRequest) {
 
     const orderId = crypto.randomUUID();
     const downloadToken = crypto.randomUUID();
-    const appUrl = getAppUrl(req);
+    const requestHost = req.headers.get("host") || "";
+    const appUrl = getProductionAppUrl(req);
     const mpToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
-    const checkoutMode = getCheckoutMode();
+    const checkoutMode = getCheckoutMode(requestHost);
+    const isOfficialProductionRequest = isOfficialProductionUrl(requestHost);
 
     console.log("checkout_start", {
       checkoutMode,
+      requestHost,
       appUrl,
+      isOfficialProductionRequest,
       hasMercadoPagoToken: Boolean(mpToken),
       mercadoPagoTokenPrefix: mpToken ? mpToken.slice(0, 7) : null,
       mercadoPagoTokenLength: mpToken?.length || 0,
@@ -50,29 +66,36 @@ export async function POST(req: NextRequest) {
       hasSupabaseServiceRoleKey: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
     });
 
-    if (checkoutMode === "mock") {
-      if (isOfficialProductionUrl(appUrl)) {
+    // Development/main safety path:
+    // Anywhere outside the official Netlify production host, skip all payment screens.
+    // Create an approved mock order and send the user straight to the download/success page.
+    if (checkoutMode === "mock" || !isOfficialProductionRequest) {
+      if (isOfficialProductionRequest) {
         return NextResponse.json({ error: "checkout_mock_blocked_in_production" }, { status: 403 });
       }
 
+      const paidAt = new Date().toISOString();
       await createOrder({
         id: orderId,
         amount: 49.00,
         currency: "MXN",
-        status: "pending",
+        status: "approved",
         payment_provider: "mock",
         customer_email: customerEmail || null,
         mercado_pago_preference_id: null,
+        mercado_pago_payment_id: `MOCK-DIRECT-${orderId.slice(0, 8).toUpperCase()}`,
         analysis_json: analysis,
         improved_cv_json: improvedCV,
         original_file_name: fileName || null,
         download_token: downloadToken,
+        paid_at: paidAt,
       });
 
       return NextResponse.json({
         orderId,
-        init_point: `${appUrl}/api/checkout/mock-pay?orderId=${orderId}`,
+        init_point: `${appUrl}/success?orderId=${orderId}`,
         isMock: true,
+        downloadToken,
       });
     }
 
