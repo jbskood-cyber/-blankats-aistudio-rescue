@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
 
   const html = `
 <!DOCTYPE html>
-<html lang="es">
+<` + `html lang="es">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -74,7 +74,7 @@ export async function GET(req: NextRequest) {
     </div>
   </div>
 </body>
-</html>
+</` + `html>
   `;
 
   return new NextResponse(html, {
