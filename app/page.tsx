@@ -500,8 +500,30 @@ export default function HomePage() {
 
   const handleCheckout = async () => {
     if (!currentAnalysis) return;
+
+    const isOfficialProductionHost =
+      typeof window !== "undefined" &&
+      window.location.hostname.includes("blankats-cv-mx.netlify.app");
+
+    // En desarrollo/main/AI Studio saltar pagos por completo.
+    if (!isOfficialProductionHost) {
+      const devOrderId = `dev-${Date.now()}`;
+      const devDownloadToken = `dev-${Math.random().toString(36).slice(2)}`;
+
+      setOrderId(devOrderId);
+      setOrderStatus("approved");
+      setDownloadToken(devDownloadToken);
+      setCheckoutError(null);
+      setOrderError(null);
+      setIsCheckingOut(false);
+      setScreen("success");
+      return;
+    }
+
+    // Solo producción real usa checkout.
     setIsCheckingOut(true);
     setCheckoutError(null);
+
     try {
       const response = await fetch("/api/checkout", {
         method: "POST",
@@ -515,18 +537,11 @@ export default function HomePage() {
       });
 
       if (!response.ok) {
-        let errorMessage = "No se pudo iniciar el proceso de pago.";
-        try {
-          const errData = await response.json();
-          errorMessage = errData.error || errorMessage;
-          if (errData.details) {
-            errorMessage = `${errorMessage}: ${String(errData.details).slice(0, 300)}`;
-          }
-        } catch {}
-        throw new Error(errorMessage);
+        throw new Error("No se pudo iniciar el proceso de pago.");
       }
 
       const data = await response.json();
+
       if (data.init_point) {
         window.location.href = data.init_point;
       } else {
